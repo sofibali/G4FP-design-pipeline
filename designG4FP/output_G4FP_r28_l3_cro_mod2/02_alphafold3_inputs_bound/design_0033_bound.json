@@ -1,0 +1,33 @@
+{
+  "dialect": "alphafold3",
+  "version": 1,
+  "name": "design_33_bound",
+  "modelSeeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "1",
+        "sequence": "RSATMHPGHLKGREIGKWIAEKNKKKKKVGGLRRTKVYISADPANRGINVNYTEEFALEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSKLSKDPNEKRDHMVLLEFVTAAGITLGMDELYKGGTGGSMVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTVAEVRFEGDTLVSRIKLVGTGFKEDGPILGQKIKFDGGGEKYELYPGHLKGREIGMWYAKKQGQKNK"
+      }
+    },
+    {
+      "dna": {
+        "id": "2",
+        "sequence": "GGGTGGGTGGGTGGGT"
+      }
+    },
+    {
+      "ligand": {
+        "id": "3",
+        "type": "K",
+        "count": 3
+      }
+    }
+  ]
+}

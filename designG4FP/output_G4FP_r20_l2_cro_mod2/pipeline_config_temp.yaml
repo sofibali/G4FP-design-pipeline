@@ -1,0 +1,43 @@
+input_pdb: inputs/G4FP_r20_l2_cro_mod2.pdb
+output_dir: output_G4FP_r20_l2_cro_mod2/
+ligandmpnn:
+  design_residues: A15-60 A240-285
+  num_sequences: 10000
+  batch_size: 5
+  seed: 42
+  model_checkpoint: /home/sbali/LigandMPNN/model_params/ligandmpnn_v_32_010_25.pt
+  sc_checkpoint: /home/sbali/LigandMPNN/model_params/ligandmpnn_sc_v_32_002_16.pt
+  cutoff_for_score: 8.0
+  pack_side_chains: true
+  pack_with_ligand_context: true
+filtering:
+  top_n: 100
+  top_percent: 1
+  sort_by: overall_confidence
+alphafold3:
+  create_ligand_free: true
+  modelseeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  db_dir: /mnt/alphafold3
+  model_dir: /mnt/alphafold3
+  gpu_id: '0'
+analysis:
+  chromophore_start: 197
+  chromophore_end: 199
+  sequence_diversity:
+    plot_distributions: true
+    calculate_entropy: true
+    compare_to_template: true
+  structure_analysis:
+    calculate_rmsd: true
+    extract_plddt: true
+    generate_plots: true
+    export_csv: true
+execution:
+  verbose: true
+  skip_existing: true
+  parallel_af3: false

@@ -1,0 +1,186 @@
+Found 10 PDB files to process:
+  - G4FP_des1_cro_mod0.pdb
+  - G4FP_des1_cro_mod4.pdb
+  - G4FP_r20_l1_cro_mod0.pdb
+  - G4FP_r20_l2_cro_mod2.pdb
+  - G4FP_r20_l2_cro_mod3.pdb
+  - G4FP_r28_l1_cro_mod2.pdb
+  - G4FP_r28_l2_cro_mod2.pdb
+  - G4FP_r28_l2_cro_mod3.pdb
+  - G4FP_r28_l3_cro_mod0.pdb
+  - G4FP_r28_l3_cro_mod2.pdb
+
+------------------------------------------------------------------------
+[19:25:03] Processing: G4FP_des1_cro_mod0
+------------------------------------------------------------------------
+  ✓ Updated config: input_pdb = /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_des1_cro_mod0.pdb
+  ✓ Output will be saved to: output_G4FP_des1_cro_mod0/
+
+  Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 35m 10s
+Creating template config backup...
+Found 10 PDB files to process:
+  - G4FP_des1_cro_mod0.pdb
+  - G4FP_des1_cro_mod4.pdb
+  - G4FP_r20_l1_cro_mod0.pdb
+  - G4FP_r20_l2_cro_mod2.pdb
+  - G4FP_r20_l2_cro_mod3.pdb
+  - G4FP_r28_l1_cro_mod2.pdb
+  - G4FP_r28_l2_cro_mod2.pdb
+  - G4FP_r28_l2_cro_mod3.pdb
+  - G4FP_r28_l3_cro_mod0.pdb
+  - G4FP_r28_l3_cro_mod2.pdb
+
+------------------------------------------------------------------------
+[11:40:08] Processing 1/10: G4FP_des1_cro_mod0
+------------------------------------------------------------------------
+  ⏭️  SKIPPED: Output already exists (10001 sequences)
+  Output directory: /home/sbali/LigandMPNN/designG4FP/output_G4FP_des1_cro_mod0
+
+------------------------------------------------------------------------
+[11:40:08] Processing 2/10: G4FP_des1_cro_mod4
+------------------------------------------------------------------------
+  Updating config for G4FP_des1_cro_mod4...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_des1_cro_mod4.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_des1_cro_mod4/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 32m 13s
+
+------------------------------------------------------------------------
+[12:12:21] Processing 3/10: G4FP_r20_l1_cro_mod0
+------------------------------------------------------------------------
+  Updating config for G4FP_r20_l1_cro_mod0...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r20_l1_cro_mod0.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r20_l1_cro_mod0/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 32m 50s
+
+------------------------------------------------------------------------
+[12:45:11] Processing 4/10: G4FP_r20_l2_cro_mod2
+------------------------------------------------------------------------
+  Updating config for G4FP_r20_l2_cro_mod2...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r20_l2_cro_mod2.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r20_l2_cro_mod2/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 33m 12s
+
+------------------------------------------------------------------------
+[13:18:23] Processing 5/10: G4FP_r20_l2_cro_mod3
+------------------------------------------------------------------------
+  Updating config for G4FP_r20_l2_cro_mod3...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r20_l2_cro_mod3.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r20_l2_cro_mod3/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 34m 17s
+
+------------------------------------------------------------------------
+[13:52:40] Processing 6/10: G4FP_r28_l1_cro_mod2
+------------------------------------------------------------------------
+  Updating config for G4FP_r28_l1_cro_mod2...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r28_l1_cro_mod2.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r28_l1_cro_mod2/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 35m 20s
+
+------------------------------------------------------------------------
+[14:28:00] Processing 7/10: G4FP_r28_l2_cro_mod2
+------------------------------------------------------------------------
+  Updating config for G4FP_r28_l2_cro_mod2...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r28_l2_cro_mod2.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r28_l2_cro_mod2/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 35m 32s
+
+------------------------------------------------------------------------
+[15:03:32] Processing 8/10: G4FP_r28_l2_cro_mod3
+------------------------------------------------------------------------
+  Updating config for G4FP_r28_l2_cro_mod3...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r28_l2_cro_mod3.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r28_l2_cro_mod3/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 35m 28s
+
+------------------------------------------------------------------------
+[15:39:00] Processing 9/10: G4FP_r28_l3_cro_mod0
+------------------------------------------------------------------------
+  Updating config for G4FP_r28_l3_cro_mod0...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r28_l3_cro_mod0.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r28_l3_cro_mod0/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 35m 18s
+
+------------------------------------------------------------------------
+[16:14:18] Processing 10/10: G4FP_r28_l3_cro_mod2
+------------------------------------------------------------------------
+  Updating config for G4FP_r28_l3_cro_mod2...
+Config updated successfully
+  ✓ Config updated:
+    Input:  /home/sbali/LigandMPNN/designG4FP/inputs/G4FP_r28_l3_cro_mod2.pdb
+    Output: /home/sbali/LigandMPNN/designG4FP/output_G4FP_r28_l3_cro_mod2/
+
+  🚀 Starting LigandMPNN (this may take 10-30 minutes)...
+  ✅ SUCCESS: Generated 10001 sequences in 35m 53s
+
+============================================================================
+Batch Processing Complete - Finished at Thu Jan 22 16:50:11 PST 2026
+============================================================================
+
+Summary:
+  Total PDBs:     10
+  ✅ Completed:   9
+  ⏭️  Skipped:    1 (already complete)
+  ❌ Failed:      0
+
+Output directories created:
+  ✓ output_G4FP_des1_cro_mod0 (10001 sequences)
+  ✓ output_G4FP_des1_cro_mod4 (10001 sequences)
+  ✓ output_G4FP_r20_l1_cro_mod0 (10001 sequences)
+  ✓ output_G4FP_r20_l2_cro_mod2 (10001 sequences)
+  ✓ output_G4FP_r20_l2_cro_mod3 (10001 sequences)
+  ✓ output_G4FP_r28_l1_cro_mod2 (10001 sequences)
+  ✓ output_G4FP_r28_l2_cro_mod2 (10001 sequences)
+  ✓ output_G4FP_r28_l2_cro_mod3 (10001 sequences)
+  ✓ output_G4FP_r28_l3_cro_mod0 (10001 sequences)
+  ✓ output_G4FP_r28_l3_cro_mod2 (10001 sequences)
+
+Log files:
+  Progress: batch_ligandmpnn_progress.log
+  Detailed: batch_ligandmpnn_detailed.log
+
+🎉 All jobs completed successfully!
+==========================================================================
+REGENERATE ALL LIGANDMPNN OUTPUTS
+==========================================================================
+
+This script will:
+  1. Delete all existing LigandMPNN outputs (01_ligandmpnn directories)
+  2. Regenerate sequences with FIXED parameters
+  3. Generate ~10,000 DIVERSE sequences per structure
+
+⚠️  WARNING: This will DELETE existing outputs for all 10 structures!
+
+regenerate_all_ligandmpnn.sh: line 18: read: read error: 0: Bad file descriptor

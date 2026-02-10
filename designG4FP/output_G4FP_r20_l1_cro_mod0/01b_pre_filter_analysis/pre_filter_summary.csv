@@ -1,0 +1,2 @@
+total_sequences,unique_sequences,overall_confidence_mean,overall_confidence_median,overall_confidence_std,overall_confidence_min,overall_confidence_max,ligand_confidence_mean,ligand_confidence_median,ligand_confidence_std,ligand_confidence_min,ligand_confidence_max,sequence_identity_mean,sequence_identity_median,sequence_identity_std,sequence_identity_min,sequence_identity_max
+10001,10000,0.46194120000000005,0.4621,0.006636253351542163,0.4361,0.4859,0.5200855400000001,0.5203,0.01172473419091387,0.4755,0.5588,0.46182795,0.4565,0.02157510125809215,0.3804,0.5435

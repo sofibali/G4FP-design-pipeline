@@ -1,0 +1,19 @@
+# Bulk LigandMPNN outputs (~2GB per structure, 20GB total)
+output_G4FP_*/01_ligandmpnn/
+
+# AF3 prediction outputs (large when populated)
+output_G4FP_*/03_alphafold3_predictions_*/
+
+# Analysis outputs (regenerable from predictions)
+output_G4FP_*/04a_ligandmpnn_analysis/
+output_G4FP_*/05_structure_analysis/
+output_G4FP_*/06_ligand_state_comparison/
+
+# Aggregated results (regenerable)
+07_results/
+08_synthesis_order/
+
+# Temp files and logs
+_temp_*.yaml
+*.log
+__pycache__/

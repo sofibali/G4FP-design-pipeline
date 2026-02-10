@@ -1,0 +1,29 @@
+Missing AlphaFold3 Predictions
+================================================================================
+
+output_G4FP_des1_cro_mod0:
+  Missing bound predictions (100):
+    - design_0009_bound
+    - design_0033_bound
+    - design_0040_bound
+    - design_0025_bound
+    - design_0056_bound
+    - design_0038_bound
+    - design_0081_bound
+    - design_0002_bound
+    - design_0071_bound
+    - design_0097_bound
+    ... and 90 more
+  Missing apo predictions (100):
+    - design_0056_apo
+    - design_0059_apo
+    - design_0001_apo
+    - design_0049_apo
+    - design_0046_apo
+    - design_0011_apo
+    - design_0090_apo
+    - design_0079_apo
+    - design_0076_apo
+    - design_0021_apo
+    ... and 90 more
+
