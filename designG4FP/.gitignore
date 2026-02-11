@@ -17,3 +17,8 @@ output_G4FP_*/06_ligand_state_comparison/
 _temp_*.yaml
 *.log
 __pycache__/
+
+# AF3 batch temp directories
+.af3_batch_gpu*/
+.inference_output_gpu*/
+.jax_cache/

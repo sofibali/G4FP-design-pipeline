@@ -27,7 +27,7 @@ The design goal is to maximize the **stability difference** between bound and un
        |
 [02.5] Validate AF3 JSONs
        |
-[03] AlphaFold3 predictions (bound + apo, 5 seeds each)
+[03] AlphaFold3 predictions (2-phase: MSA then inference, 5 seeds each)
        |
 [04a] LigandMPNN sequence analysis
 [05]  AF3 structure analysis (pLDDT, RMSD, PAE, consensus)
@@ -81,7 +81,7 @@ designG4FP/
 ├── run_pipeline.sh                  # Interactive single-structure pipeline
 ├── batch_run_ligandmpnn.sh          # Batch LigandMPNN (all structures)
 ├── batch_filter_all.sh              # Batch filtering (all structures)
-├── run_all_af3_parallel.sh          # Batch AF3 (all structures)
+├── run_all_af3_parallel.sh          # Batch AF3 (2-phase: MSA + inference, 2 GPUs)
 ├── run_structure_analysis.sh        # Batch analysis (all structures)
 │
 │   ── Utilities ──
@@ -135,11 +135,15 @@ pip install biopython pandas numpy matplotlib seaborn pyyaml scipy openpyxl
 ```bash
 cd /home/sbali/LigandMPNN/designG4FP
 
-# Full pipeline, 3 parallel AF3 jobs, with Pareto filtering
-nohup ./run_all.sh --parallel 3 --pareto 2>&1 | tee run_all.log &
+# Full pipeline with Pareto filtering
+nohup ./run_all.sh --parallel 4 --pareto 2>&1 | tee run_all.log &
 
 # Skip LigandMPNN (already done) and AF3 (not ready yet)
 ./run_all.sh --skip-ligandmpnn --skip-af3
+
+# Run AF3 in two phases for efficiency (recommended)
+./run_all_af3_parallel.sh --msa-only           # CPU: run MSA first
+./run_all_af3_parallel.sh --inference-only     # GPU: then inference
 ```
 
 ### Run individual steps
@@ -157,8 +161,11 @@ python 02_filter_and_prepare_af3.py --pareto --top-n 200         # Pareto mode
 python utils/validate_af3_jsons.py          # check all
 python utils/validate_af3_jsons.py --fix    # auto-fix missing ids
 
-# Step 3: AlphaFold3 (parallel)
-./03_run_alphafold3_parallel.sh pipeline_config.yaml both 3
+# Step 3: AlphaFold3 (optimized 2-phase pipeline)
+./run_all_af3_parallel.sh --dry-run            # preview plan + time estimate
+./run_all_af3_parallel.sh --msa-only           # phase 1: MSA search (CPU only)
+./run_all_af3_parallel.sh --inference-only     # phase 2: structure prediction (GPU)
+./run_all_af3_parallel.sh                      # both phases sequentially
 
 # Steps 5-6: Analysis (after AF3 completes)
 python 05_analyze_af3_structures.py --output-dir output_G4FP_des1_cro_mod0 --template inputs/G4FP_des1_cro_mod0.pdb --state both
@@ -181,6 +188,57 @@ Finds sequences on the Pareto frontier of `overall_confidence` vs `ligand_confid
 
 ### Diversity-weighted selection (Step 7)
 After scoring, sequences are clustered by Hamming distance. The top-scoring sequence from each cluster is selected first, then remaining slots are filled round-robin across clusters. This prevents the final set from being dominated by near-identical sequences.
+
+## AlphaFold3 Optimization
+
+The AF3 runner (`run_all_af3_parallel.sh`) uses a 2-phase approach for maximum GPU efficiency:
+
+### Phase 1: Data Pipeline (CPU only, `--msa-only`)
+- Runs MSA/template search (`--norun_inference`) for each input JSON
+- CPU-bound, no GPU needed -- runs 20 jobs in parallel by default
+- Each job needs ~80GB RAM; with 2TB RAM you can run ~25 parallel
+- Produces `_data.json` files with pre-computed MSAs
+- Est. time: ~2-3 hours (2000 sequences, 20 parallel, databases cached in RAM)
+
+### Phase 2: Inference (GPU, `--inference-only`)
+- Uses `--input_dir` so the model loads **once per GPU** (not once per prediction)
+- `--jax_compilation_cache_dir` persists compiled XLA kernels (~2.5x speedup)
+- `--flash_attention_implementation triton` (fastest for Ampere+ GPUs like A100/H100)
+- All inputs are ~300 tokens -> 512 bucket, so compilation happens once
+- `--norun_data_pipeline` when MSAs are pre-computed
+- Splits 10 structures across 2 GPUs (5 each)
+- Est. time: ~83 hours per GPU (~3.5 days)
+
+### Usage
+```bash
+# Preview plan and time estimates
+./run_all_af3_parallel.sh --dry-run
+
+# Run MSA first (CPU node, no GPU needed)
+nohup ./run_all_af3_parallel.sh --msa-only 2>&1 | tee run_af3_msa.log &
+
+# Then inference (GPU node)
+nohup ./run_all_af3_parallel.sh --inference-only 2>&1 | tee run_af3_inference.log &
+
+# Or run both phases sequentially
+nohup ./run_all_af3_parallel.sh 2>&1 | tee run_af3.log &
+
+# Monitor
+tail -f run_af3_gpu0_inference.log
+tail -f run_af3_gpu1_inference.log
+```
+
+### Flags
+| Flag | Description |
+|------|-------------|
+| `--msa-only` | Phase 1 only (CPU, no GPU) |
+| `--inference-only` | Phase 2 only (GPU, skip MSA) |
+| `--msa-parallel N` | Number of parallel MSA jobs (default: 20) |
+| `--gpu0 ID` / `--gpu1 ID` | GPU device IDs (default: 0, 1) |
+| `--node1-only` / `--node2-only` | Run only one GPU's share |
+| `--mode bound\|apo\|both` | Which states to predict (default: both) |
+| `--diffusion-samples N` | Diffusion samples per seed (default: 5) |
+| `--dry-run` | Show plan without running |
 
 ## Key Metrics
 
