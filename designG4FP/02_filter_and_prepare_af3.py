@@ -241,21 +241,24 @@ def create_af3_input_json(protein_seq: str, dna_seq: str, seq_id: int,
                           include_dna: bool = True) -> Dict:
     """Create AlphaFold3 input JSON"""
     
-    sequences = [{"protein": {"id": "1", "sequence": protein_seq}}]
+    # AF3 requires IDs to be uppercase letters (A, B, C, ...)
+    chain_letters = [chr(ord('A') + i) for i in range(26)]
 
-    current_id = 2
+    sequences = [{"protein": {"id": chain_letters[0], "sequence": protein_seq}}]
+
+    current_id = 1
     if include_dna and dna_seq:
-        sequences.append({"dna": {"id": str(current_id), "sequence": dna_seq}})
+        sequences.append({"dna": {"id": chain_letters[current_id], "sequence": dna_seq}})
         current_id += 1
 
     # Add ions if present - must wrap in 'ligand' key for AlphaFold3 format
+    # AF3 3.0.1 only accepts {id, ccdCodes, smiles} for ligands
     if ions:
         for ion in ions:
             sequences.append({
                 "ligand": {
-                    "id": str(current_id),
-                    "type": ion['type'],
-                    "count": ion['count']
+                    "id": chain_letters[current_id],
+                    "ccdCodes": [ion['type']] * ion['count']
                 }
             })
             current_id += 1

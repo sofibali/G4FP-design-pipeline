@@ -27,10 +27,6 @@ fi
 echo "Using configuration: $CONFIG_FILE"
 echo ""
 
-# Make scripts executable
-chmod +x 01_run_ligandmpnn.sh
-chmod +x 03_run_alphafold3.sh
-
 # ============================================================================
 # STEP 1: Run LigandMPNN
 # ============================================================================
@@ -128,61 +124,53 @@ echo ""
 read -p "Run STEP 4b? [y/N] " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    # Parse output directory from config
-    OUTPUT_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['output_dir'])")
-    TEMPLATE=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['input_pdb'])")
     CHROM_START=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_start'])")
     CHROM_END=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_end'])")
-    
-    # Run analysis for bound predictions
-    if [ -d "$OUTPUT_DIR/03_alphafold3_predictions_bound" ]; then
-        echo "Analyzing bound (protein+DNA) predictions..."
-        python3 analyze_af3_structures.py \
-            --pipeline-dir "$OUTPUT_DIR" \
-            --af3-dir "$OUTPUT_DIR/03_alphafold3_predictions_bound" \
-            --template "$TEMPLATE" \
-            --chromophore-start "$CHROM_START" \
-            --chromophore-end "$CHROM_END" \
-            --output-dir "$OUTPUT_DIR/04b_structure_analysis_bound"
-    fi
-    
-    # Run analysis for apo predictions
-    if [ -d "$OUTPUT_DIR/03_alphafold3_predictions_apo" ]; then
-        echo ""
-        echo "Analyzing apo (protein-only) predictions..."
-        python3 analyze_af3_structures.py \
-            --pipeline-dir "$OUTPUT_DIR" \
-            --af3-dir "$OUTPUT_DIR/03_alphafold3_predictions_apo" \
-            --template "$TEMPLATE" \
-            --chromophore-start "$CHROM_START" \
-            --chromophore-end "$CHROM_END" \
-            --output-dir "$OUTPUT_DIR/04b_structure_analysis_apo"
-    fi
+
+    # Auto-discovers all output_G4FP_* dirs, uses G4FP_des1_cro_mod0 as reference
+    python3 05_analyze_af3_structures.py \
+        --state both \
+        --chromophore-range "$CHROM_START,$CHROM_END"
 else
     echo "Skipping Step 4b"
 fi
 
 # ============================================================================
-# STEP 4c: Compare bound vs apo
+# STEP 4c: Compare bound vs apo (all templates combined)
 # ============================================================================
 echo ""
-echo "STEP 4c: Compare bound vs apo AlphaFold3 predictions"
+echo "STEP 4c: Compare bound vs apo AlphaFold3 predictions (all templates)"
 echo ""
 read -p "Run STEP 4c? [y/N] " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    OUTPUT_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['output_dir'])")
     CHROM_START=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_start'])")
     CHROM_END=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_end'])")
-    
-    python3 compare_ligand_states.py \
-        --bound-dir "$OUTPUT_DIR/03_alphafold3_predictions_bound" \
-        --apo-dir "$OUTPUT_DIR/03_alphafold3_predictions_apo" \
-        --chromophore-start "$CHROM_START" \
-        --chromophore-end "$CHROM_END" \
-        --output-dir "$OUTPUT_DIR/04c_ligand_state_comparison"
+
+    # Auto-discovers all output_G4FP_* dirs, saves per-template + combined CSVs
+    python3 06_compare_ligand_states.py \
+        --chromophore-range "$CHROM_START,$CHROM_END"
 else
     echo "Skipping Step 4c"
+fi
+
+# ============================================================================
+# STEP 5: Aggregate and rank across ALL output directories
+# ============================================================================
+echo ""
+echo "STEP 5: Aggregate and rank all designs across all templates"
+echo "This combines results from all output_G4FP_* directories into a single ranking."
+echo ""
+read -p "Run STEP 5 (Aggregate all 1000 sequences and rank)? [y/N] " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    python3 07_aggregate_and_rank.py
+else
+    echo "Skipping Step 5"
+    echo ""
+    echo "NOTE: You can run aggregation manually later with:"
+    echo "  python3 07_aggregate_and_rank.py"
+    echo "  python3 07_aggregate_and_rank.py --n-select 500"
 fi
 
 # ============================================================================
@@ -200,7 +188,7 @@ OUTPUT_DIR=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); pr
 
 echo "Results directory: $OUTPUT_DIR/"
 echo ""
-echo "Pipeline outputs:"
+echo "Per-template outputs:"
 echo "  01_ligandmpnn/                    - LigandMPNN generated sequences"
 echo "  01b_pre_filter_analysis/          - Pre-filter sequence analysis"
 echo "  02_filtered_sequences.csv         - Top filtered sequences"
@@ -209,9 +197,16 @@ echo "  02_alphafold3_inputs_apo/         - AF3 inputs (protein only)"
 echo "  03_alphafold3_predictions_bound/  - AF3 structures (protein+DNA)"
 echo "  03_alphafold3_predictions_apo/    - AF3 structures (protein only)"
 echo "  04a_ligandmpnn_analysis/          - Sequence diversity analysis"
-echo "  04b_structure_analysis_bound/     - Structure analysis (bound)"
-echo "  04b_structure_analysis_apo/       - Structure analysis (apo)"
-echo "  04c_ligand_state_comparison/      - Bound vs apo comparison"
+echo "  05_structure_analysis/            - Structure analysis (bound+apo)"
+echo "  06_ligand_state_comparison/       - Bound vs apo comparison"
+echo ""
+echo "Aggregated outputs (all templates combined):"
+echo "  07_results/                       - Final ranked candidates across all templates"
+echo "    07_final_candidates.csv         - Ranked candidates with all metrics"
+echo "    07_final_candidates.fa          - FASTA of selected sequences"
+echo "    07_pareto_frontier.csv          - Pareto-optimal designs"
+echo "    07_selection_summary.png        - Overview plots"
+echo "    07_bound_vs_apo_scatter.png     - Bound vs apo visualization"
 echo ""
 echo "For detailed usage instructions, see PIPELINE_README.md"
 echo ""

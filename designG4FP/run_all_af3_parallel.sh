@@ -182,6 +182,30 @@ if [ $DRY_RUN -eq 1 ]; then
     exit 0
 fi
 
+# ============================================================================
+# PRE-FLIGHT: Validate AF3 JSONs before starting expensive computation
+# ============================================================================
+echo "Pre-flight: validating AF3 input JSONs..."
+if python3 "$SCRIPT_DIR/utils/validate_af3_jsons.py" 2>&1 | tail -1 | grep -q "0 errors"; then
+    echo "  All JSONs valid."
+    echo ""
+else
+    echo ""
+    echo "ERROR: AF3 input JSONs have validation errors!"
+    echo "  Run: python3 utils/validate_af3_jsons.py        # to see errors"
+    echo "  Run: python3 utils/validate_af3_jsons.py --fix   # to auto-fix"
+    echo "  Aborting to avoid wasting compute time."
+    exit 1
+fi
+
+# Pre-flight: check database accessibility
+if [ ! -d "/mnt/alphafold3" ]; then
+    echo "WARNING: /mnt/alphafold3 not found on this node."
+    echo "  AF3 databases may only be available on GPU compute nodes."
+    echo "  If this is a login node, submit this script to a GPU node instead."
+    echo ""
+fi
+
 START_TIME=$(date +%s)
 
 # ============================================================================
@@ -197,8 +221,9 @@ run_data_pipeline_for_json() {
     local output_dir=$2
     local design_name=$(basename "$json_file" .json)
 
-    # Check if data pipeline already completed (look for _data.json in output)
-    if ls "$output_dir/$design_name"/*_data.json &>/dev/null 2>&1; then
+    # Check if data pipeline already completed (look for _data.json recursively --
+    # AF3 writes output 2 levels deep: design_NNNN_apo/design_N_apo/design_N_apo_data.json)
+    if [ -n "$(find "$output_dir/$design_name" -name '*_data.json' -print -quit 2>/dev/null)" ]; then
         return 0
     fi
 
@@ -245,15 +270,14 @@ if [ $SKIP_MSA -eq 0 ]; then
             for json_file in "$input_dir"/*.json; do
                 design_name=$(basename "$json_file" .json)
 
-                # Skip if data pipeline already done
-                if ls "$output_dir/$design_name"/*_data.json &>/dev/null 2>&1; then
+                # Skip if data pipeline already done (AF3 writes 2 levels deep)
+                if [ -n "$(find "$output_dir/$design_name" -name '*_data.json' -print -quit 2>/dev/null)" ]; then
                     ((TOTAL_SKIPPED++))
                     continue
                 fi
 
-                # Also skip if inference already completed (CIF exists)
-                if ls "$output_dir/$design_name"/*_model*.cif &>/dev/null 2>&1 || \
-                   ls "$output_dir/$design_name"/model_cif/model_0.cif &>/dev/null 2>&1; then
+                # Also skip if inference already completed (CIF exists, also 2 levels deep)
+                if [ -n "$(find "$output_dir/$design_name" -name '*.cif' -print -quit 2>/dev/null)" ]; then
                     ((TOTAL_SKIPPED++))
                     continue
                 fi
@@ -327,14 +351,14 @@ prepare_inference_batch() {
                 local design_name=$(basename "$json_file" .json)
                 local pred_dir="$output_dir/$design_name"
 
-                # Skip if inference already completed
-                if ls "$pred_dir"/*_model*.cif &>/dev/null 2>&1 || \
-                   ls "$pred_dir"/model_cif/model_0.cif &>/dev/null 2>&1; then
+                # Skip if inference already completed (AF3 writes 2 levels deep)
+                if [ -n "$(find "$pred_dir" -name '*.cif' -print -quit 2>/dev/null)" ]; then
                     continue
                 fi
 
                 # Prefer _data.json (MSA pre-computed), fall back to original
-                local data_json=$(ls "$pred_dir"/*_data.json 2>/dev/null | head -1)
+                # Search recursively since AF3 writes 2 levels deep
+                local data_json=$(find "$pred_dir" -name '*_data.json' -print -quit 2>/dev/null)
                 if [ -n "$data_json" ]; then
                     ln -sf "$data_json" "$batch_dir/${struct_name}_${design_name}_data.json"
                     ((n_ready++))

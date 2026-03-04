@@ -70,6 +70,9 @@ def validate_json(filepath: Path) -> List[str]:
             if sid is None:
                 errors.append(f"sequences[{i}].{type_key}: missing 'id' field")
             else:
+                # AF3 3.0.1 requires IDs to be uppercase letters (A, B, C, ...)
+                if not (isinstance(sid, str) and len(sid) == 1 and sid.isupper()):
+                    errors.append(f"sequences[{i}].{type_key}: id must be an uppercase letter, got '{sid}'")
                 if sid in seen_ids:
                     errors.append(f"sequences[{i}].{type_key}: duplicate id '{sid}'")
                 seen_ids.add(sid)
@@ -135,6 +138,9 @@ def fix_json(filepath: Path) -> bool:
         data["version"] = 1
         changed = True
 
+    # AF3 3.0.1 requires IDs to be uppercase letters (A, B, C, ...)
+    chain_letters = [chr(ord('A') + i) for i in range(26)]
+
     # Fix id placement: move top-level id into the type dict
     for i, seq in enumerate(data.get("sequences", [])):
         # Find the type key (protein, dna, rna, ligand)
@@ -169,7 +175,30 @@ def fix_json(filepath: Path) -> bool:
 
         # Case 3: no id anywhere -> assign one
         elif "id" not in seq and "id" not in type_dict:
-            type_dict["id"] = str(i + 1)
+            type_dict["id"] = chain_letters[i]
+            reordered = {"id": type_dict["id"]}
+            for k, v in type_dict.items():
+                if k != "id":
+                    reordered[k] = v
+            seq[type_key] = reordered
+            changed = True
+
+    # Fix numeric IDs -> uppercase letters (A, B, C, ...)
+    for i, seq in enumerate(data.get("sequences", [])):
+        type_key = None
+        for k in ("protein", "dna", "rna", "ligand"):
+            if k in seq:
+                type_key = k
+                break
+        if type_key is None:
+            continue
+        type_dict = seq[type_key]
+        if not isinstance(type_dict, dict):
+            continue
+        sid = type_dict.get("id", "")
+        if not (isinstance(sid, str) and len(sid) == 1 and sid.isupper()):
+            type_dict["id"] = chain_letters[i]
+            # Reorder to keep id first
             reordered = {"id": type_dict["id"]}
             for k, v in type_dict.items():
                 if k != "id":

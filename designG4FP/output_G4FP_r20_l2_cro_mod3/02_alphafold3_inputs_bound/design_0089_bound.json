@@ -12,21 +12,24 @@
   "sequences": [
     {
       "protein": {
-        "id": "1",
+        "id": "A",
         "sequence": "HPGHLKGREIGMWYAAKRGKGKVYSYDIHVSADPENRGIRVNYTRKYELYDGSTLEADVEQQNTPIGDGPVLLPDNHYLSTQSKLSKDPNEKRDHMVLLEFVTAAGITLGMDELYKGGTGGSMVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVKRIELKGTGFKEDGPILGQKIKFNGGPPPSLKGRQIGEYYGKKQGQ"
       }
     },
     {
       "dna": {
-        "id": "2",
+        "id": "B",
         "sequence": "GGGTGGGTGGGTGGGT"
       }
     },
     {
       "ligand": {
-        "id": "3",
-        "type": "K",
-        "count": 3
+        "id": "C",
+        "ccdCodes": [
+          "K",
+          "K",
+          "K"
+        ]
       }
     }
   ]

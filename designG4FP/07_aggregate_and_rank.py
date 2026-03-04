@@ -48,13 +48,22 @@ plt.rcParams["font.size"] = 10
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_comparison_results(output_dir: Path) -> Optional[pd.DataFrame]:
-    """Load 06_ligand_state_comparison_results.csv from one output directory."""
+def load_comparison_results(output_dir: Path, base_dir: Path = None) -> Optional[pd.DataFrame]:
+    """Load 06_ligand_state_comparison_results.csv for one output directory.
+
+    Checks both the output dir itself and analysis_output/output_dir_name/.
+    Only loads per-template CSV (not the combined one).
+    """
+    # Try original location first
     csv_path = output_dir / "06_ligand_state_comparison_results.csv"
+    if not csv_path.exists() and base_dir is not None:
+        # Try per-template analysis_output location
+        csv_path = base_dir / "analysis_output" / output_dir.name / "06_ligand_state_comparison_results.csv"
     if not csv_path.exists():
         return None
     df = pd.read_csv(csv_path)
-    df["template"] = output_dir.name
+    if "template" not in df.columns:
+        df["template"] = output_dir.name
     return df
 
 
@@ -76,7 +85,7 @@ def aggregate_all(base_dir: Path, output_dirs: Optional[List[Path]] = None) -> p
 
     frames = []
     for odir in output_dirs:
-        comparison_df = load_comparison_results(odir)
+        comparison_df = load_comparison_results(odir, base_dir)
         seq_df = load_filtered_sequences(odir)
 
         if comparison_df is None:
@@ -370,8 +379,32 @@ def diversity_weighted_selection(df: pd.DataFrame,
 # Visualization
 # ---------------------------------------------------------------------------
 
+def load_template_plddt(base_dir: Path) -> pd.DataFrame:
+    """Load B-factor pLDDT from all template PDBs for reference overlays."""
+    from Bio.PDB import PDBParser
+    parser = PDBParser(QUIET=True)
+    inputs_dir = base_dir / "inputs"
+    records = []
+    for pdb in sorted(inputs_dir.glob("G4FP_*.pdb")):
+        structure = parser.get_structure('s', str(pdb))
+        b_factors = []
+        for model in structure:
+            for chain in model:
+                if chain.get_id() == 'A':
+                    for residue in chain:
+                        if residue.has_id('CA'):
+                            b_factors.append(residue['CA'].get_bfactor())
+        if b_factors:
+            records.append({
+                'template_name': pdb.stem,
+                'mean_plddt': float(np.mean(b_factors)),
+            })
+    return pd.DataFrame(records)
+
+
 def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
-                          df_pareto: pd.DataFrame, output_dir: Path):
+                          df_pareto: pd.DataFrame, output_dir: Path,
+                          template_plddt_df: pd.DataFrame = None):
     """Generate summary plots."""
     output_dir.mkdir(exist_ok=True, parents=True)
     csv_dir = output_dir / "plot_data_csvs"
@@ -445,6 +478,19 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         lims = [min(ax.get_xlim()[0], ax.get_ylim()[0]),
                 max(ax.get_xlim()[1], ax.get_ylim()[1])]
         ax.plot(lims, lims, "k--", alpha=0.3, label="y=x")
+
+        # Template reference markers (all 10 templates as stars)
+        if template_plddt_df is not None and not template_plddt_df.empty:
+            cmap = plt.cm.get_cmap('tab10', max(10, len(template_plddt_df)))
+            for i, (_, row) in enumerate(template_plddt_df.iterrows()):
+                plddt = row['mean_plddt']
+                short = row['template_name'].replace('G4FP_', '')
+                ax.scatter([plddt], [plddt], marker='*', s=200,
+                           color=cmap(i), edgecolors='black', linewidths=0.8,
+                           zorder=6)
+                ax.annotate(short, (plddt, plddt), fontsize=5,
+                            xytext=(4, 4), textcoords='offset points')
+            ax.scatter([], [], marker='*', s=100, color='black', label='Templates (no switch)')
 
         # Ideal region annotation
         ax.annotate("IDEAL\n(high bound,\nlow apo)",
@@ -614,9 +660,14 @@ the best from each cluster, ensuring broad coverage of sequence space.
         pareto_export = [c for c in df_pareto.columns if "array" not in c]
         df_pareto[pareto_export].to_csv(results_dir / "07_pareto_frontier.csv", index=False)
 
+    # Load template pLDDTs for reference overlays
+    template_plddt_df = load_template_plddt(base_dir)
+    if not template_plddt_df.empty:
+        print(f"\nLoaded {len(template_plddt_df)} template references for plots")
+
     # Visualizations
     print("\nGenerating plots...")
-    create_visualizations(df, df_selected, df_pareto, results_dir)
+    create_visualizations(df, df_selected, df_pareto, results_dir, template_plddt_df)
 
     # Summary
     print("\n" + "=" * 80)

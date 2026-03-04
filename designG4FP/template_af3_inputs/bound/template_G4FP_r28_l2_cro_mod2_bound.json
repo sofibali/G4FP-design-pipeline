@@ -1,0 +1,36 @@
+{
+  "dialect": "alphafold3",
+  "version": 1,
+  "name": "template_G4FP_r28_l2_cro_mod2_bound",
+  "modelSeeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "RSATMHPGHLKGREIGMWYAKKQGQKNKGSYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSKLSKDPNEKRDHMVLLEFVTAAGITLGMDELYKGGTGGSMVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNGSRSATMHPGHLKGREIGMWYAKKQGQKNK"
+      }
+    },
+    {
+      "dna": {
+        "id": "B",
+        "sequence": "GGGTGGGTGGGTGGGT"
+      }
+    },
+    {
+      "ligand": {
+        "id": "C",
+        "ccdCodes": [
+          "K",
+          "K",
+          "K"
+        ]
+      }
+    }
+  ]
+}
