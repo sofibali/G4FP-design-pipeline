@@ -2,23 +2,14 @@
 """
 Analyze AlphaFold3 Structure Predictions for G4FP Designs
 
-Comprehensive analysis of AF3 predictions including:
-1. AlphaFold3 quality metrics (pTM, ipTM, pLDDT, PAE)
-2. RMSD analysis (global and chromophore-specific) vs reference
-3. Confidence-pLDDT correlations
-4. Per-residue analysis
-5. Top design identification
-
-All RMSD calculations use a single reference structure.
-All 10 template PDBs are shown as reference markers on plots.
+Analyzes ALL 25 seed-sample models per design to compute distributions.
+Reports mean +/- SD for pLDDT, RMSD, pTM, ipTM, ranking_score, PAE.
+Scatter plots colored by SD show prediction confidence.
+Template AF3 predictions used as reference when available.
 
 Usage:
-    # All templates (auto-discover)
     python 05_analyze_af3_structures.py --chromophore-range 197,199
-
-    # Single template
-    python 05_analyze_af3_structures.py --output-dir output_G4FP_des1_cro_mod0 \\
-        --template inputs/G4FP_des1_cro_mod0.pdb --state both --chromophore-range 197,199
+    python 05_analyze_af3_structures.py --output-dir output_G4FP_des1_cro_mod0 --state both
 """
 
 import os
@@ -28,34 +19,99 @@ import json
 import warnings
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
+from collections import defaultdict
 import argparse
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy import stats
-from collections import defaultdict
 
 from Bio.PDB import PDBParser, MMCIFParser, Superimposer
 
 warnings.filterwarnings('ignore')
-
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (12, 8)
 plt.rcParams['font.size'] = 10
 
 
-# -------------------------------------------------------------------------
-# Template reference extraction
-# -------------------------------------------------------------------------
+# Map user-facing state names to directory names on disk
+DISK_STATE = {'holo': 'bound', 'apo': 'apo'}
 
-def load_all_template_metrics(inputs_dir: Path, chromophore_range: Tuple[int, int]) -> pd.DataFrame:
-    """Load B-factor pLDDT from all template PDBs in inputs/ directory."""
-    parser = PDBParser(QUIET=True)
+# ─── Shared utilities ─────────────────────────────────────────────────
+
+def discover_seed_sample_dirs(design_dir: Path) -> List[Tuple[int, int, Path]]:
+    """Find all seed-N_sample-M directories within a design output dir."""
+    pattern = re.compile(r'^seed-(\d+)_sample-(\d+)$')
+    dirs = []
+    for d in design_dir.iterdir():
+        if d.is_dir():
+            m = pattern.match(d.name)
+            if m:
+                dirs.append((int(m.group(1)), int(m.group(2)), d))
+    if not dirs:
+        # Check one level deeper (AF3 nesting: outer/inner/seed-*)
+        for subdir in design_dir.iterdir():
+            if subdir.is_dir():
+                for d in subdir.iterdir():
+                    if d.is_dir():
+                        m = pattern.match(d.name)
+                        if m:
+                            dirs.append((int(m.group(1)), int(m.group(2)), d))
+                if dirs:
+                    break
+    return sorted(dirs)
+
+
+def compute_per_residue_plddt(full_conf: Dict, chain_id: str = 'A') -> Optional[np.ndarray]:
+    """Compute per-residue pLDDT from atom_plddts filtered to a chain."""
+    if 'atom_plddts' not in full_conf or 'atom_chain_ids' not in full_conf:
+        return None
+    atom_plddts = np.array(full_conf['atom_plddts'])
+    atom_chains = full_conf['atom_chain_ids']
+    chain_mask = np.array([ch == chain_id for ch in atom_chains])
+    chain_plddts = atom_plddts[chain_mask]
+    if len(chain_plddts) == 0:
+        return None
+    if 'token_chain_ids' in full_conf:
+        token_chains = full_conf['token_chain_ids']
+        n_residues = sum(1 for ch in token_chains if ch == chain_id)
+        if n_residues > 0:
+            atoms_per_residue = len(chain_plddts) / n_residues
+            per_res = []
+            for i in range(n_residues):
+                start = int(round(i * atoms_per_residue))
+                end = int(round((i + 1) * atoms_per_residue))
+                if start < len(chain_plddts):
+                    per_res.append(np.mean(chain_plddts[start:end]))
+            return np.array(per_res)
+    return chain_plddts
+
+
+def find_af3_result_dir(base_dir: Path) -> Optional[Path]:
+    """Find actual AF3 result dir (might be nested one level)."""
+    if list(base_dir.glob("*_model.cif")) or list(base_dir.glob("seed-*")):
+        return base_dir
+    for subdir in sorted(base_dir.iterdir()):
+        if subdir.is_dir():
+            if list(subdir.glob("*_model.cif")) or list(subdir.glob("seed-*")):
+                return subdir
+    return None
+
+
+def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) -> pd.DataFrame:
+    """Load template metrics from AF3 outputs if available, else B-factors."""
+    tpl_dir = base_dir / "template_af3_outputs"
+    inputs_dir = base_dir / "inputs"
+    pdb_parser = PDBParser(QUIET=True)
     records = []
+
     for pdb in sorted(inputs_dir.glob("G4FP_*.pdb")):
-        structure = parser.get_structure('s', str(pdb))
+        tpl_name = pdb.stem
+        rec = {'template_name': tpl_name, 'source': 'bfactor'}
+
+        # B-factor baseline
+        structure = pdb_parser.get_structure('s', str(pdb))
         b_factors = []
         for model in structure:
             for chain in model:
@@ -63,90 +119,139 @@ def load_all_template_metrics(inputs_dir: Path, chromophore_range: Tuple[int, in
                     for residue in chain:
                         if residue.has_id('CA'):
                             b_factors.append(residue['CA'].get_bfactor())
-        if not b_factors:
-            continue
-        b_arr = np.array(b_factors)
-        chrom_start, chrom_end = chromophore_range
-        chrom_plddt = float(np.mean(b_arr[chrom_start-1:chrom_end])) if len(b_arr) >= chrom_end else None
-        records.append({
-            'template_name': pdb.stem,
-            'template_pdb': str(pdb),
-            'mean_plddt': float(np.mean(b_arr)),
-            'chromophore_mean_plddt': chrom_plddt,
-            'n_residues': len(b_arr),
-        })
+        if b_factors:
+            b_arr = np.array(b_factors)
+            rec['mean_plddt'] = float(np.mean(b_arr))
+            rec['n_residues'] = len(b_arr)
+            cs, ce = chromophore_range
+            if len(b_arr) >= ce:
+                rec['chromophore_mean_plddt'] = float(np.mean(b_arr[cs-1:ce]))
+
+        # Try AF3 results for each state
+        for disk_state in ['bound', 'apo']:
+            display_state = 'holo' if disk_state == 'bound' else disk_state
+            af3_name = f"template_{tpl_name}_{disk_state}"
+            af3_base = tpl_dir / disk_state / af3_name
+            if not af3_base.exists():
+                continue
+            result_dir = find_af3_result_dir(af3_base)
+            if result_dir is None:
+                continue
+
+            seed_dirs = discover_seed_sample_dirs(result_dir)
+            if not seed_dirs:
+                continue
+
+            rec['source'] = 'af3'
+            plddts, chrom_plddts, scores, ptms, iptms = [], [], [], [], []
+
+            for _seed, _sample, sd in seed_dirs:
+                sf = sd / 'summary_confidences.json'
+                if sf.exists():
+                    with open(sf) as f:
+                        sc = json.load(f)
+                    if 'ranking_score' in sc:
+                        scores.append(sc['ranking_score'])
+                    if 'ptm' in sc:
+                        ptms.append(sc['ptm'])
+                    if 'iptm' in sc:
+                        iptms.append(sc['iptm'])
+
+                ff = sd / 'confidences.json'
+                if ff.exists():
+                    with open(ff) as f:
+                        fc = json.load(f)
+                    plddt = compute_per_residue_plddt(fc, 'A')
+                    if plddt is not None and len(plddt) > 1:
+                        plddts.append(float(np.mean(plddt)))
+                        cs, ce = chromophore_range
+                        if len(plddt) >= ce:
+                            chrom_plddts.append(float(np.mean(plddt[cs-1:ce])))
+
+            prefix = f'{display_state}_'
+            if plddts:
+                rec[f'{prefix}mean_plddt'] = float(np.mean(plddts))
+                rec[f'{prefix}mean_plddt_sd'] = float(np.std(plddts))
+            if chrom_plddts:
+                rec[f'{prefix}chromophore_plddt'] = float(np.mean(chrom_plddts))
+                rec[f'{prefix}chromophore_plddt_sd'] = float(np.std(chrom_plddts))
+            if scores:
+                rec[f'{prefix}ranking_score'] = float(np.mean(scores))
+                rec[f'{prefix}ranking_score_sd'] = float(np.std(scores))
+            if ptms:
+                rec[f'{prefix}ptm'] = float(np.mean(ptms))
+                rec[f'{prefix}ptm_sd'] = float(np.std(ptms))
+            if iptms:
+                rec[f'{prefix}iptm'] = float(np.mean(iptms))
+                rec[f'{prefix}iptm_sd'] = float(np.std(iptms))
+
+        records.append(rec)
+
     return pd.DataFrame(records)
 
 
-def _get_template_colors(template_df: pd.DataFrame) -> Dict[str, str]:
-    """Assign distinct colors to each template."""
-    cmap = plt.cm.get_cmap('tab10', max(10, len(template_df)))
-    colors = {}
-    for i, name in enumerate(template_df['template_name']):
-        colors[name] = cmap(i)
-    return colors
-
-
-# -------------------------------------------------------------------------
-# AlphaFoldStructureAnalyzer (single output dir)
-# -------------------------------------------------------------------------
+# ─── AlphaFoldStructureAnalyzer ──────────────────────────────────────
 
 class AlphaFoldStructureAnalyzer:
-    """Analyze AlphaFold3 predictions for one output directory."""
+    """Analyze AF3 predictions for one output directory, all seeds."""
 
     def __init__(self, output_dir: Path, reference_template: Path,
                  chromophore_range: Tuple[int, int] = (197, 199)):
         self.output_dir = Path(output_dir)
         self.reference_template = Path(reference_template)
         self.chromophore_range = chromophore_range
-
         self.pdb_parser = PDBParser(QUIET=True)
         self.cif_parser = MMCIFParser(QUIET=True)
-
-        # Load reference structure for RMSD
         self.ref_structure = self._load_structure(self.reference_template)
         self.ref_ca_atoms = self._extract_ca_atoms(self.ref_structure)
-
-        # Template name from output dir
         self.template_name = self.output_dir.name.replace("output_", "")
-
-        print(f"  Reference: {self.reference_template} ({len(self.ref_ca_atoms)} CA atoms)")
+        print(f"  Reference: {self.reference_template} ({len(self.ref_ca_atoms)} CA)")
 
     def _load_structure(self, filepath: Path):
         if filepath.suffix == '.pdb':
-            return self.pdb_parser.get_structure('structure', str(filepath))
-        elif filepath.suffix == '.cif':
-            return self.cif_parser.get_structure('structure', str(filepath))
-        else:
-            raise ValueError(f"Unknown format: {filepath.suffix}")
+            return self.pdb_parser.get_structure('s', str(filepath))
+        return self.cif_parser.get_structure('s', str(filepath))
 
     def _extract_ca_atoms(self, structure, chain_id='A'):
-        ca_atoms = []
+        ca = []
         for model in structure:
             for chain in model:
                 if chain.get_id() == chain_id:
-                    for residue in chain:
-                        if residue.has_id('CA'):
-                            ca_atoms.append(residue['CA'])
-        return ca_atoms
+                    for res in chain:
+                        if res.has_id('CA'):
+                            ca.append(res['CA'])
+        return ca
 
     def _discover_inference_dirs(self, af3_dir: Path, state: str) -> Dict[int, Path]:
-        """Discover AF3 inference dirs with model files."""
+        """Discover AF3 inference dirs (non-padded, possibly timestamped, or inside padded wrappers)."""
         pattern = re.compile(
             rf'^design_(\d+)_{re.escape(state)}(?:_(\d{{8}}_\d{{6}}))?$'
         )
+        padded_pattern = re.compile(
+            rf'^design_(\d{{4}})_{re.escape(state)}$'
+        )
         candidates = defaultdict(list)
+
         for d in af3_dir.iterdir():
             if not d.is_dir():
                 continue
+            # Check padded wrapper dirs first (design_0000_bound/design_0_bound/)
+            mp = padded_pattern.match(d.name)
+            if mp:
+                seq_id = int(mp.group(1))
+                inner = find_af3_result_dir(d)
+                if inner is not None:
+                    candidates[seq_id].append((False, "", inner))
+                continue
+            # Check non-padded dirs at top level (design_0_bound, design_0_bound_20260227_...)
             m = pattern.match(d.name)
-            if not m:
-                continue
-            seq_id = int(m.group(1))
-            timestamp = m.group(2)
-            if not list(d.glob("*_model.cif")):
-                continue
-            candidates[seq_id].append((timestamp is not None, timestamp or "", d))
+            if m:
+                seq_id = int(m.group(1))
+                ts = m.group(2)
+                has_model = bool(list(d.glob("*_model.cif")))
+                has_seeds = bool(list(d.glob("seed-*")))
+                if has_model or has_seeds:
+                    candidates[seq_id].append((ts is not None, ts or "", d))
 
         result = {}
         for seq_id, entries in candidates.items():
@@ -158,157 +263,206 @@ class AlphaFoldStructureAnalyzer:
                 result[seq_id] = entries[0][2]
         return result
 
-    def _load_confidence_data(self, design_dir: Path) -> Tuple[Dict, Dict]:
-        summary_files = list(design_dir.glob("*_summary_confidences.json"))
-        summary_conf = {}
-        if summary_files:
-            with open(summary_files[0]) as f:
-                summary_conf = json.load(f)
-        else:
-            fallback = list(design_dir.glob("**/summary_confidences*.json"))
-            if fallback:
-                with open(fallback[0]) as f:
-                    summary_conf = json.load(f)
-
-        full_files = [f for f in design_dir.glob("*_confidences.json")
-                      if 'summary' not in f.name]
-        full_conf = {}
-        if full_files:
-            with open(full_files[0]) as f:
-                full_conf = json.load(f)
-        return summary_conf, full_conf
-
-    def _compute_per_residue_plddt(self, full_conf: Dict, chain_id: str = 'A') -> Optional[np.ndarray]:
-        if 'atom_plddts' not in full_conf or 'atom_chain_ids' not in full_conf:
-            return None
-        atom_plddts = np.array(full_conf['atom_plddts'])
-        atom_chains = full_conf['atom_chain_ids']
-        chain_mask = np.array([ch == chain_id for ch in atom_chains])
-        chain_plddts = atom_plddts[chain_mask]
-        if len(chain_plddts) == 0:
-            return None
-        if 'token_chain_ids' in full_conf:
-            token_chains = full_conf['token_chain_ids']
-            n_residues = sum(1 for ch in token_chains if ch == chain_id)
-            if n_residues > 0:
-                atoms_per_residue = len(chain_plddts) / n_residues
-                per_res = []
-                for i in range(n_residues):
-                    start = int(round(i * atoms_per_residue))
-                    end = int(round((i + 1) * atoms_per_residue))
-                    if start < len(chain_plddts):
-                        per_res.append(np.mean(chain_plddts[start:end]))
-                return np.array(per_res)
-        return chain_plddts
-
-    def calculate_rmsd(self, model_file: Path, chain_id='A') -> Dict[str, float]:
-        model_structure = self._load_structure(model_file)
-        model_ca = self._extract_ca_atoms(model_structure, chain_id)
-
+    def _compute_rmsd(self, model_file: Path, chain_id='A') -> Dict[str, float]:
+        """Compute RMSD vs reference for one model file."""
+        structure = self._load_structure(model_file)
+        model_ca = self._extract_ca_atoms(structure, chain_id)
         min_len = min(len(model_ca), len(self.ref_ca_atoms))
+        if min_len < 10:
+            return {}
         model_ca = model_ca[:min_len]
         ref_ca = self.ref_ca_atoms[:min_len]
 
         sup = Superimposer()
         sup.set_atoms(ref_ca, model_ca)
-        global_rmsd = sup.rms
+        result = {'global_rmsd': sup.rms}
 
-        chrom_start, chrom_end = self.chromophore_range
-        chromophore_rmsd = None
-        if len(model_ca) >= chrom_end:
-            chrom_ref = ref_ca[chrom_start-1:chrom_end]
-            chrom_model = model_ca[chrom_start-1:chrom_end]
-            sup_chrom = Superimposer()
-            sup_chrom.set_atoms(chrom_ref, chrom_model)
-            chromophore_rmsd = sup_chrom.rms
+        cs, ce = self.chromophore_range
+        if min_len >= ce:
+            sup_c = Superimposer()
+            sup_c.set_atoms(ref_ca[cs-1:ce], model_ca[cs-1:ce])
+            result['chromophore_rmsd'] = sup_c.rms
 
-        return {'global_rmsd': global_rmsd, 'chromophore_rmsd': chromophore_rmsd}
+        return result
 
-    def analyze_design(self, design_dir: Path, state: str, seq_id: int) -> Dict:
-        """Analyze a single design."""
-        results = {
-            'seq_id': seq_id,
-            'design_name': design_dir.name,
-            'state': state,
-            'template': self.template_name,
+    def _analyze_single_seed(self, seed_dir: Path, state: str) -> Optional[Dict]:
+        """Analyze one seed-sample model. Returns flat dict or None."""
+        result = {}
+
+        # CIF model → RMSD
+        model_cif = seed_dir / 'model.cif'
+        if model_cif.exists():
+            try:
+                rmsd = self._compute_rmsd(model_cif)
+                result.update(rmsd)
+            except Exception:
+                pass
+
+        # Summary confidence
+        sf = seed_dir / 'summary_confidences.json'
+        if sf.exists():
+            try:
+                with open(sf) as f:
+                    sc = json.load(f)
+                for k in ['ptm', 'iptm', 'ranking_score', 'fraction_disordered']:
+                    if k in sc:
+                        result[k] = sc[k]
+            except Exception:
+                pass
+
+        # Full confidence → pLDDT, PAE
+        ff = seed_dir / 'confidences.json'
+        if ff.exists():
+            try:
+                with open(ff) as f:
+                    fc = json.load(f)
+                plddt = compute_per_residue_plddt(fc, 'A')
+                if plddt is not None and len(plddt) > 1:
+                    result['mean_plddt'] = float(np.mean(plddt))
+                    result['min_plddt'] = float(np.min(plddt))
+                    cs, ce = self.chromophore_range
+                    if len(plddt) >= ce:
+                        result['chromophore_mean_plddt'] = float(
+                            np.mean(plddt[cs-1:ce]))
+
+                if 'pae' in fc:
+                    pae = np.array(fc['pae'])
+                    if pae.ndim == 2:
+                        result['mean_pae'] = float(np.mean(pae))
+                        if state == 'holo' and plddt is not None:
+                            n_prot = len(plddt)
+                            if pae.shape[0] > n_prot:
+                                result['interface_pae'] = float(
+                                    np.mean(pae[:n_prot, n_prot:]))
+            except Exception:
+                pass
+
+        return result if result else None
+
+    def _analyze_top_level(self, design_dir: Path, state: str,
+                           seq_id: int) -> Dict:
+        """Fallback: analyze only the top-level best model."""
+        result = {
+            'seq_id': seq_id, 'design_name': design_dir.name,
+            'state': state, 'template': self.template_name, 'n_seeds': 1,
         }
-
         model_files = list(design_dir.glob("*_model.cif"))
         if not model_files:
-            return results
-
-        model_file = model_files[0]
-
+            return result
         try:
-            rmsd_data = self.calculate_rmsd(model_file)
-            results.update(rmsd_data)
-        except Exception as e:
-            print(f"    RMSD error: {str(e)[:80]}")
+            result.update(self._compute_rmsd(model_files[0]))
+        except Exception:
+            pass
 
-        try:
-            summary_conf, full_conf = self._load_confidence_data(design_dir)
-            for key in ['ptm', 'iptm', 'ranking_score', 'fraction_disordered']:
-                if key in summary_conf:
-                    results[key] = summary_conf[key]
+        summary_files = list(design_dir.glob("*_summary_confidences.json"))
+        if summary_files:
+            with open(summary_files[0]) as f:
+                sc = json.load(f)
+            for k in ['ptm', 'iptm', 'ranking_score', 'fraction_disordered']:
+                if k in sc:
+                    result[k] = sc[k]
 
-            plddt = self._compute_per_residue_plddt(full_conf, chain_id='A')
+        full_files = [f for f in design_dir.glob("*_confidences.json")
+                      if 'summary' not in f.name]
+        if full_files:
+            with open(full_files[0]) as f:
+                fc = json.load(f)
+            plddt = compute_per_residue_plddt(fc, 'A')
             if plddt is not None and len(plddt) > 1:
-                results['mean_plddt'] = float(np.mean(plddt))
-                results['min_plddt'] = float(np.min(plddt))
+                result['mean_plddt'] = float(np.mean(plddt))
+                result['min_plddt'] = float(np.min(plddt))
+                cs, ce = self.chromophore_range
+                if len(plddt) >= ce:
+                    result['chromophore_mean_plddt'] = float(
+                        np.mean(plddt[cs-1:ce]))
+            if 'pae' in fc:
+                pae = np.array(fc['pae'])
+                if pae.ndim == 2:
+                    result['mean_pae'] = float(np.mean(pae))
 
-                chrom_start, chrom_end = self.chromophore_range
-                if len(plddt) >= chrom_end:
-                    results['chromophore_mean_plddt'] = float(np.mean(plddt[chrom_start-1:chrom_end]))
+        return result
 
-            if 'pae' in full_conf:
-                try:
-                    pae_matrix = np.array(full_conf['pae'])
-                    if pae_matrix.ndim == 2:
-                        results['mean_pae'] = float(np.mean(pae_matrix))
-                        n_prot = len(self.ref_ca_atoms)
-                        if state == 'bound' and pae_matrix.shape[0] > n_prot:
-                            results['interface_pae'] = float(np.mean(pae_matrix[:n_prot, n_prot:]))
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"    Confidence error: {str(e)[:80]}")
+    def analyze_design(self, design_dir: Path, state: str,
+                       seq_id: int) -> Dict:
+        """Analyze all seed-sample models, return mean +/- SD."""
+        seed_dirs = discover_seed_sample_dirs(design_dir)
 
-        return results
+        if not seed_dirs:
+            return self._analyze_top_level(design_dir, state, seq_id)
+
+        seed_results = []
+        for _seed, _sample, sd in seed_dirs:
+            r = self._analyze_single_seed(sd, state)
+            if r:
+                seed_results.append(r)
+
+        if not seed_results:
+            return self._analyze_top_level(design_dir, state, seq_id)
+
+        result = {
+            'seq_id': seq_id, 'design_name': design_dir.name,
+            'state': state, 'template': self.template_name,
+            'n_seeds': len(seed_results),
+        }
+
+        df_seeds = pd.DataFrame(seed_results)
+        for col in df_seeds.columns:
+            vals = df_seeds[col].dropna()
+            if len(vals) > 0:
+                result[col] = float(vals.mean())
+                result[f'{col}_sd'] = float(vals.std()) if len(vals) > 1 else 0.0
+
+        return result
 
     def analyze_all_designs(self, state: str = 'both') -> pd.DataFrame:
         states = []
-        if state in ['bound', 'both']:
-            states.append('bound')
+        if state in ['holo', 'both']:
+            states.append('holo')
         if state in ['apo', 'both']:
             states.append('apo')
 
         all_results = []
-        for state_name in states:
-            af3_dir = self.output_dir / f"03_alphafold3_predictions_{state_name}"
+        for s in states:
+            disk_s = DISK_STATE[s]
+            af3_dir = self.output_dir / f"03_alphafold3_predictions_{disk_s}"
             if not af3_dir.exists():
                 continue
 
-            inference_dirs = self._discover_inference_dirs(af3_dir, state_name)
-            if not inference_dirs:
+            inf_dirs = self._discover_inference_dirs(af3_dir, disk_s)
+            if not inf_dirs:
                 continue
 
-            print(f"  {state_name}: {len(inference_dirs)} designs")
-            for i, (seq_id, design_dir) in enumerate(sorted(inference_dirs.items()), 1):
-                if i % 50 == 0 or i == 1:
-                    print(f"    [{i}/{len(inference_dirs)}]")
-                result = self.analyze_design(design_dir, state_name, seq_id)
-                if result and 'mean_plddt' in result:
-                    all_results.append(result)
+            n = len(inf_dirs)
+            print(f"  {s}: {n} designs (x25 seeds each)")
+            for i, (seq_id, ddir) in enumerate(sorted(inf_dirs.items()), 1):
+                if i % 25 == 0 or i == 1 or i == n:
+                    print(f"    [{i}/{n}] design {seq_id}")
+                r = self.analyze_design(ddir, s, seq_id)
+                if r and 'mean_plddt' in r:
+                    all_results.append(r)
 
         return pd.DataFrame(all_results)
 
 
-# -------------------------------------------------------------------------
-# Visualization (operates on combined DataFrame)
-# -------------------------------------------------------------------------
+# ─── Visualization ────────────────────────────────────────────────────
 
-def create_visualizations(df: pd.DataFrame, template_df: pd.DataFrame,
-                          output_dir: Path):
+STATE_COLORS = {'holo': '#E07B39', 'apo': '#4878CF'}  # orange / blue
+
+
+def _get_template_colors(template_df):
+    cmap = plt.cm.get_cmap('tab10', max(10, len(template_df)))
+    return {name: cmap(i) for i, name in enumerate(template_df['template_name'])}
+
+
+def _state_color(state, alpha=1.0):
+    """Return distinct color for holo (orange) vs apo (blue)."""
+    import matplotlib.colors as mcolors
+    base = STATE_COLORS.get(state, '#999999')
+    r, g, b = mcolors.to_rgb(base)
+    return (r, g, b, alpha)
+
+
+def create_visualizations(df, template_df, output_dir):
     output_dir.mkdir(exist_ok=True, parents=True)
     csv_dir = output_dir / "plot_data_csvs"
     csv_dir.mkdir(exist_ok=True)
@@ -316,153 +470,300 @@ def create_visualizations(df: pd.DataFrame, template_df: pd.DataFrame,
     print("\nGenerating visualizations...")
 
     _plot_af3_metrics(df, template_df, output_dir, csv_dir)
+    _plot_sd_overview(df, output_dir, csv_dir)
     _plot_rmsd_distributions(df, template_df, output_dir, csv_dir)
     _plot_correlation_matrix(df, output_dir, csv_dir)
     _plot_global_vs_chromophore_rmsd(df, template_df, output_dir, csv_dir)
+    _plot_plddt_vs_rmsd_sd(df, template_df, output_dir, csv_dir)
     _export_top_designs(df, output_dir, csv_dir)
-    _plot_per_residue_analysis(df, template_df, output_dir, csv_dir)
 
     print(f"\nAll plots saved to: {output_dir}")
 
 
 def _plot_af3_metrics(df, template_df, output_dir, csv_dir):
+    """AF3 quality metrics: mean distributions (top) and SD distributions (bottom)."""
     metrics = ['mean_plddt', 'ptm', 'iptm', 'ranking_score']
     available = [m for m in metrics if m in df.columns and df[m].notna().any()]
     if not available:
         return
 
     tpl_colors = _get_template_colors(template_df)
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    axes = axes.flatten()
+    n = len(available)
+    fig, axes = plt.subplots(2, n, figsize=(4 * n, 10))
+    if n == 1:
+        axes = axes.reshape(2, 1)
 
     for idx, metric in enumerate(available):
-        # Histograms by state and template
-        for state in sorted(df['state'].unique()):
-            templates_in_state = sorted(df[df['state'] == state]['template'].unique())
-            for tpl in templates_in_state:
-                tdf = df[(df['state'] == state) & (df['template'] == tpl)]
-                vals = tdf[metric].dropna()
-                if len(vals) > 0:
-                    short = tpl.replace('G4FP_', '')
-                    color = tpl_colors.get(tpl, 'steelblue')
-                    axes[idx].hist(vals, bins=20, alpha=0.4, color=color,
-                                   label=f'{short} {state}')
+        sd_col = f'{metric}_sd'
 
-        # Template reference lines (for pLDDT only)
+        # Top row: distribution of means -- colored by state
+        for state in sorted(df['state'].unique()):
+            sdf = df[df['state'] == state]
+            vals = sdf[metric].dropna()
+            if len(vals) > 0:
+                axes[0, idx].hist(vals, bins=20, alpha=0.5,
+                                  color=_state_color(state),
+                                  label=f'{state} (n={len(vals)})')
+
+        # Template reference lines for pLDDT
         if metric == 'mean_plddt':
             for _, row in template_df.iterrows():
-                plddt = row['mean_plddt']
-                short = row['template_name'].replace('G4FP_', '')
-                color = tpl_colors.get(row['template_name'], 'black')
-                axes[idx].axvline(plddt, color=color, linestyle='--',
-                                  linewidth=1.5, alpha=0.7)
+                plddt = row.get('mean_plddt')
+                if plddt and pd.notna(plddt):
+                    color = tpl_colors.get(row['template_name'], 'black')
+                    axes[0, idx].axvline(plddt, color=color, linestyle='--',
+                                         linewidth=1.5, alpha=0.7)
 
-        axes[idx].set_xlabel(metric.replace('_', ' ').title())
-        axes[idx].set_ylabel('Frequency')
-        axes[idx].set_title(f'{metric.replace("_", " ").title()} Distribution')
-        axes[idx].legend(fontsize=6)
+        axes[0, idx].set_xlabel(metric.replace('_', ' ').title())
+        axes[0, idx].set_ylabel('Frequency')
+        axes[0, idx].set_title(f'{metric.replace("_", " ").title()} (Mean)')
+        axes[0, idx].legend(fontsize=7)
 
-    for idx in range(len(available), 4):
-        axes[idx].axis('off')
+        # Bottom row: SD distribution -- colored by state
+        if sd_col in df.columns and df[sd_col].notna().any():
+            for state in sorted(df['state'].unique()):
+                sdf = df[df['state'] == state]
+                vals = sdf[sd_col].dropna()
+                if len(vals) > 0:
+                    axes[1, idx].hist(vals, bins=20, alpha=0.5,
+                                      color=_state_color(state),
+                                      label=f'{state}')
+            axes[1, idx].set_xlabel(f'{metric} SD')
+            axes[1, idx].set_ylabel('Frequency')
+            axes[1, idx].set_title(f'{metric.replace("_", " ").title()} SD (across seeds)')
+            axes[1, idx].legend(fontsize=7)
+        else:
+            axes[1, idx].axis('off')
 
     plt.tight_layout()
     plt.savefig(output_dir / '02_alphafold3_metrics.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    export_cols = [c for c in ['seq_id', 'state', 'template'] + available if c in df.columns]
+    export_cols = [c for c in ['seq_id', 'state', 'template', 'n_seeds'] +
+                   sum([[m, f'{m}_sd'] for m in available], []) if c in df.columns]
     df[export_cols].to_csv(csv_dir / '02_alphafold3_metrics_data.csv', index=False)
     print("  02_alphafold3_metrics.png")
 
 
+def _plot_sd_overview(df, output_dir, csv_dir):
+    """Dedicated SD overview: distribution of SDs for all metrics."""
+    sd_cols = [c for c in df.columns if c.endswith('_sd') and df[c].notna().any()]
+    if not sd_cols:
+        return
+
+    n = len(sd_cols)
+    ncols = min(n, 4)
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
+    axes = np.atleast_2d(axes)
+
+    for i, col in enumerate(sd_cols):
+        r, c = divmod(i, ncols)
+        metric_name = col.replace('_sd', '').replace('_', ' ').title()
+        vals = df[col].dropna()
+
+        for state in sorted(df['state'].unique()):
+            sv = df[df['state'] == state][col].dropna()
+            if len(sv) > 0:
+                axes[r, c].hist(sv, bins=20, alpha=0.5,
+                                color=_state_color(state), label=state)
+
+        axes[r, c].set_xlabel(f'{metric_name} SD')
+        axes[r, c].set_ylabel('Count')
+        axes[r, c].set_title(f'{metric_name}\nMedian SD: {vals.median():.4f}')
+        axes[r, c].legend(fontsize=7)
+
+    for i in range(len(sd_cols), nrows * ncols):
+        r, c = divmod(i, ncols)
+        axes[r, c].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(output_dir / '03_sd_overview.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("  03_sd_overview.png")
+
+
 def _plot_rmsd_distributions(df, template_df, output_dir, csv_dir):
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    tpl_colors = _get_template_colors(template_df)
+    """RMSD distributions: mean (top) and SD (bottom)."""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     for col_idx, (metric, title) in enumerate([
         ('global_rmsd', 'Global RMSD'),
-        ('chromophore_rmsd', 'Chromophore RMSD')
+        ('chromophore_rmsd', 'Chromophore RMSD'),
     ]):
         if metric not in df.columns:
             continue
-        for state in sorted(df['state'].unique()):
-            for tpl in sorted(df[df['state'] == state]['template'].unique()):
-                tdf = df[(df['state'] == state) & (df['template'] == tpl)]
-                vals = tdf[metric].dropna()
-                if len(vals) > 0:
-                    short = tpl.replace('G4FP_', '')
-                    color = tpl_colors.get(tpl, 'steelblue')
-                    axes[col_idx].hist(vals, bins=20, alpha=0.4, color=color,
-                                       label=f'{short} {state}')
+        sd_col = f'{metric}_sd'
 
-        axes[col_idx].axvline(0, color='black', linestyle='--', linewidth=2,
-                              alpha=0.5, label='Reference (RMSD=0)')
-        axes[col_idx].set_xlabel(f'{title} (Angstrom)')
-        axes[col_idx].set_ylabel('Frequency')
-        axes[col_idx].set_title(f'{title} Distribution')
-        axes[col_idx].legend(fontsize=6)
+        # Top: means colored by state
+        for state in sorted(df['state'].unique()):
+            vals = df[df['state'] == state][metric].dropna()
+            if len(vals) > 0:
+                axes[0, col_idx].hist(vals, bins=20, alpha=0.5,
+                                      color=_state_color(state),
+                                      label=f'{state} (n={len(vals)})')
+
+        axes[0, col_idx].axvline(0, color='black', linestyle='--', linewidth=2,
+                                  alpha=0.3, label='Reference')
+        axes[0, col_idx].set_xlabel(f'{title} (A)')
+        axes[0, col_idx].set_ylabel('Frequency')
+        axes[0, col_idx].set_title(f'{title} (Mean across seeds)')
+        axes[0, col_idx].legend(fontsize=7)
+
+        # Bottom: SD colored by state
+        if sd_col in df.columns and df[sd_col].notna().any():
+            for state in sorted(df['state'].unique()):
+                vals = df[df['state'] == state][sd_col].dropna()
+                if len(vals) > 0:
+                    axes[1, col_idx].hist(vals, bins=20, alpha=0.5,
+                                          color=_state_color(state),
+                                          label=f'{state}')
+            axes[1, col_idx].set_xlabel(f'{title} SD')
+            axes[1, col_idx].set_ylabel('Frequency')
+            axes[1, col_idx].set_title(f'{title} SD (across seeds)')
+            axes[1, col_idx].legend(fontsize=7)
 
     plt.tight_layout()
     plt.savefig(output_dir / '04_rmsd_distributions.png', dpi=300, bbox_inches='tight')
     plt.close()
 
-    cols = [c for c in ['seq_id', 'state', 'template', 'global_rmsd', 'chromophore_rmsd'] if c in df.columns]
+    cols = [c for c in ['seq_id', 'state', 'template', 'global_rmsd',
+                         'global_rmsd_sd', 'chromophore_rmsd',
+                         'chromophore_rmsd_sd'] if c in df.columns]
     df[cols].to_csv(csv_dir / '04_rmsd_distributions_data.csv', index=False)
     print("  04_rmsd_distributions.png")
 
 
-def _plot_correlation_matrix(df, output_dir, csv_dir):
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    exclude = ['seq_id']
-    numeric_cols = [c for c in numeric_cols if c not in exclude]
-    if len(numeric_cols) < 2:
-        return
-
-    corr = df[numeric_cols].corr()
-    plt.figure(figsize=(12, 10))
-    sns.heatmap(corr, annot=True, fmt='.2f', cmap='coolwarm', center=0, square=True, linewidths=1)
-    plt.title('Correlation Matrix')
-    plt.tight_layout()
-    plt.savefig(output_dir / '05_correlation_matrix.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    corr.to_csv(csv_dir / '05_correlation_matrix_data.csv')
-    print("  05_correlation_matrix.png")
-
-
 def _plot_global_vs_chromophore_rmsd(df, template_df, output_dir, csv_dir):
+    """Scatter: Global vs Chromophore RMSD. Left=by template, Right=colored by SD."""
     if 'global_rmsd' not in df.columns or 'chromophore_rmsd' not in df.columns:
         return
 
-    tpl_colors = _get_template_colors(template_df)
-    plt.figure(figsize=(10, 8))
+    plot_df = df.dropna(subset=['global_rmsd', 'chromophore_rmsd'])
+    if plot_df.empty:
+        return
 
-    for state in sorted(df['state'].unique()):
-        for tpl in sorted(df[df['state'] == state]['template'].unique()):
-            tdf = df[(df['state'] == state) & (df['template'] == tpl)]
-            tdf = tdf.dropna(subset=['global_rmsd', 'chromophore_rmsd'])
-            if len(tdf) > 0:
-                short = tpl.replace('G4FP_', '')
-                color = tpl_colors.get(tpl, 'steelblue')
-                plt.scatter(tdf['global_rmsd'], tdf['chromophore_rmsd'],
-                            alpha=0.4, s=25, color=color, label=f'{short} {state}')
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    markers = {'holo': 'o', 'apo': 's'}
 
-    # All templates at origin
-    for _, row in template_df.iterrows():
-        short = row['template_name'].replace('G4FP_', '')
-        color = tpl_colors.get(row['template_name'], 'black')
-        plt.scatter([0], [0], color=color, marker='*', s=200, zorder=5)
-    plt.scatter([0], [0], color='black', marker='*', s=200, zorder=5, label='Templates (RMSD=0)')
+    # Left: colored by state
+    for state in sorted(plot_df['state'].unique()):
+        sdf = plot_df[plot_df['state'] == state]
+        axes[0].scatter(sdf['global_rmsd'], sdf['chromophore_rmsd'],
+                        alpha=0.5, s=25, color=_state_color(state),
+                        marker=markers.get(state, 'o'),
+                        label=f'{state} (n={len(sdf)})')
+    axes[0].scatter([0], [0], color='black', marker='*', s=200, zorder=5,
+                     label='Template')
+    axes[0].set_xlabel('Global RMSD (A)')
+    axes[0].set_ylabel('Chromophore RMSD (A)')
+    axes[0].set_title('Global vs Chromophore RMSD (by state)')
+    axes[0].legend(fontsize=7, loc='upper left')
 
-    plt.xlabel('Global RMSD (Angstrom)')
-    plt.ylabel('Chromophore RMSD (Angstrom)')
-    plt.title('Global vs Chromophore RMSD')
-    plt.legend(fontsize=7, loc='upper left')
+    # Right: colored by SD
+    sd_col = 'global_rmsd_sd'
+    if sd_col in plot_df.columns and plot_df[sd_col].notna().any():
+        sc = axes[1].scatter(plot_df['global_rmsd'], plot_df['chromophore_rmsd'],
+                             c=plot_df[sd_col], cmap='plasma', s=25, alpha=0.7)
+        plt.colorbar(sc, ax=axes[1], label='Global RMSD SD (across seeds)')
+        axes[1].set_title('Colored by RMSD SD (prediction uncertainty)')
+    else:
+        for state in sorted(plot_df['state'].unique()):
+            sdf = plot_df[plot_df['state'] == state]
+            axes[1].scatter(sdf['global_rmsd'], sdf['chromophore_rmsd'],
+                            alpha=0.5, s=25, label=state)
+        axes[1].set_title('Global vs Chromophore RMSD')
+        axes[1].legend()
+
+    axes[1].set_xlabel('Global RMSD (A)')
+    axes[1].set_ylabel('Chromophore RMSD (A)')
+
     plt.tight_layout()
-    plt.savefig(output_dir / '06_global_vs_chromophore_rmsd.png', dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir / '06_global_vs_chromophore_rmsd.png', dpi=300,
+                bbox_inches='tight')
     plt.close()
 
-    cols = [c for c in ['seq_id', 'state', 'template', 'global_rmsd', 'chromophore_rmsd'] if c in df.columns]
-    df[cols].to_csv(csv_dir / '06_global_vs_chromophore_rmsd_data.csv', index=False)
+    cols = [c for c in ['seq_id', 'state', 'template', 'global_rmsd',
+                         'global_rmsd_sd', 'chromophore_rmsd',
+                         'chromophore_rmsd_sd'] if c in df.columns]
+    plot_df[cols].to_csv(csv_dir / '06_global_vs_chromophore_rmsd_data.csv',
+                         index=False)
     print("  06_global_vs_chromophore_rmsd.png")
+
+
+def _plot_plddt_vs_rmsd_sd(df, template_df, output_dir, csv_dir):
+    """Scatter: pLDDT vs RMSD, colored by pLDDT SD."""
+    if 'mean_plddt' not in df.columns or 'global_rmsd' not in df.columns:
+        return
+
+    plot_df = df.dropna(subset=['mean_plddt', 'global_rmsd'])
+    if plot_df.empty:
+        return
+
+    tpl_colors = _get_template_colors(template_df)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    markers = {'holo': 'o', 'apo': 's'}
+
+    # Left: by state
+    for state in sorted(plot_df['state'].unique()):
+        sdf = plot_df[plot_df['state'] == state]
+        axes[0].scatter(sdf['global_rmsd'], sdf['mean_plddt'],
+                        alpha=0.5, s=25, color=_state_color(state),
+                        marker=markers.get(state, 'o'),
+                        label=f'{state} (n={len(sdf)})')
+
+    # Template references
+    for _, row in template_df.iterrows():
+        plddt = row.get('mean_plddt')
+        if plddt and pd.notna(plddt):
+            color = tpl_colors.get(row['template_name'], 'black')
+            axes[0].scatter([0], [plddt], marker='*', s=200, color=color,
+                            edgecolors='black', linewidths=0.8, zorder=5)
+
+    axes[0].set_xlabel('Global RMSD (A)')
+    axes[0].set_ylabel('Mean pLDDT')
+    axes[0].set_title('pLDDT vs RMSD (by state)')
+    axes[0].legend(fontsize=7, loc='lower left')
+
+    # Right: colored by pLDDT SD
+    sd_col = 'mean_plddt_sd'
+    if sd_col in plot_df.columns and plot_df[sd_col].notna().any():
+        sc = axes[1].scatter(plot_df['global_rmsd'], plot_df['mean_plddt'],
+                             c=plot_df[sd_col], cmap='plasma', s=25, alpha=0.7)
+        plt.colorbar(sc, ax=axes[1], label='pLDDT SD (across seeds)')
+        axes[1].set_title('Colored by pLDDT SD (prediction uncertainty)')
+    else:
+        axes[1].scatter(plot_df['global_rmsd'], plot_df['mean_plddt'],
+                        alpha=0.5, s=25)
+        axes[1].set_title('pLDDT vs RMSD')
+
+    axes[1].set_xlabel('Global RMSD (A)')
+    axes[1].set_ylabel('Mean pLDDT')
+
+    plt.tight_layout()
+    plt.savefig(output_dir / '07_plddt_vs_rmsd.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    print("  07_plddt_vs_rmsd.png")
+
+
+def _plot_correlation_matrix(df, output_dir, csv_dir):
+    numeric = df.select_dtypes(include=[np.number]).columns
+    exclude = ['seq_id', 'n_seeds']
+    cols = [c for c in numeric if c not in exclude and not c.endswith('_sd')]
+    if len(cols) < 2:
+        return
+
+    corr = df[cols].corr()
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(corr, annot=True, fmt='.2f', cmap='coolwarm', center=0,
+                square=True, linewidths=1)
+    plt.title('Correlation Matrix (Mean Values)')
+    plt.tight_layout()
+    plt.savefig(output_dir / '05_correlation_matrix.png', dpi=300,
+                bbox_inches='tight')
+    plt.close()
+    corr.to_csv(csv_dir / '05_correlation_matrix_data.csv')
+    print("  05_correlation_matrix.png")
 
 
 def _export_top_designs(df, output_dir, csv_dir):
@@ -471,7 +772,6 @@ def _export_top_designs(df, output_dir, csv_dir):
         metrics_to_rank.append(('mean_plddt', False))
     if 'global_rmsd' in df.columns:
         metrics_to_rank.append(('global_rmsd', True))
-
     if not metrics_to_rank:
         return
 
@@ -479,51 +779,36 @@ def _export_top_designs(df, output_dir, csv_dir):
     for metric, ascending in metrics_to_rank:
         for state in df['state'].unique():
             sdf = df[df['state'] == state]
-            top_20 = sdf.nsmallest(20, metric) if ascending else sdf.nlargest(20, metric)
-            top_designs[f'top_20_{state}_{metric}'] = top_20
+            top = sdf.nsmallest(20, metric) if ascending else sdf.nlargest(20, metric)
+            top_designs[f'top_20_{state}_{metric}'] = top
 
-    all_top = pd.concat([d.assign(metric=key) for key, d in top_designs.items()], ignore_index=True)
+    all_top = pd.concat([d.assign(metric=key)
+                         for key, d in top_designs.items()], ignore_index=True)
     all_top.to_csv(csv_dir / '07_top20_designs_data.csv', index=False)
     print("  07_top20_designs exported")
 
 
-def _plot_per_residue_analysis(df, template_df, output_dir, csv_dir):
-    """Plot per-residue RMSD for top design."""
-    if 'mean_plddt' not in df.columns or df['mean_plddt'].isna().all():
-        return
-
-    # Find best design
-    top = df.loc[df['mean_plddt'].idxmax()]
-    seq_id = int(top['seq_id'])
-    state = top['state']
-    tpl_name = top.get('template', '')
-
-    # We'd need to re-calculate per-residue RMSD; skip if we can't find the dir
-    # This is a lightweight plot so just note the top design
-    print(f"  Top design: seq_{seq_id} ({state}, {tpl_name}) pLDDT={top['mean_plddt']:.1f}")
-
-
-# -------------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------------
+# ─── Main ─────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='Analyze AlphaFold3 structure predictions')
+    parser = argparse.ArgumentParser(
+        description='Analyze AF3 predictions (all seeds)')
     parser.add_argument('--output-dir', type=str, default=None,
-                        help='Single output directory (default: auto-discover all)')
-    parser.add_argument('--template', type=str, default='inputs/G4FP_des1_cro_mod0.pdb',
-                        help='Reference structure for RMSD (default: inputs/G4FP_des1_cro_mod0.pdb)')
-    parser.add_argument('--state', type=str, default='both', choices=['bound', 'apo', 'both'],
-                        help='Which predictions to analyze')
-    parser.add_argument('--chromophore-range', type=str, default='197,199',
-                        help='Chromophore residue range as "start,end"')
-    parser.add_argument('--analysis-output-dir', type=str, default='analysis_output',
-                        help='Central directory for output')
+                        help='Single output dir (default: auto-discover all)')
+    parser.add_argument('--template', type=str,
+                        default='inputs/G4FP_des1_cro_mod0.pdb',
+                        help='Reference structure for RMSD')
+    parser.add_argument('--state', type=str, default='both',
+                        choices=['holo', 'apo', 'both'])
+    parser.add_argument('--chromophore-range', type=str, default='197,199')
+    parser.add_argument('--analysis-output-dir', type=str,
+                        default='analysis_output')
+    parser.add_argument('--force', action='store_true',
+                        help='Re-analyze even if results CSV exists')
 
     args = parser.parse_args()
-    chrom_start, chrom_end = map(int, args.chromophore_range.split(','))
-    chromophore_range = (chrom_start, chrom_end)
-
+    cs, ce = map(int, args.chromophore_range.split(','))
+    chromophore_range = (cs, ce)
     base_dir = Path(__file__).resolve().parent
 
     if args.output_dir:
@@ -531,64 +816,75 @@ def main():
     else:
         output_dirs = sorted(
             d for d in base_dir.iterdir()
-            if d.is_dir() and d.name.startswith("output_G4FP_")
-        )
+            if d.is_dir() and d.name.startswith("output_G4FP_"))
 
     if not output_dirs:
         print("No output directories found")
         sys.exit(1)
 
-    # Load all 10 template metrics
-    inputs_dir = base_dir / "inputs"
-    template_df = load_all_template_metrics(inputs_dir, chromophore_range)
+    # Load template metrics (AF3 if available, else B-factors)
+    template_df = load_template_metrics(base_dir, chromophore_range)
     print(f"\nLoaded {len(template_df)} template references:")
-    for _, row in template_df.iterrows():
-        print(f"  {row['template_name']}: pLDDT={row['mean_plddt']:.1f}, chrom={row['chromophore_mean_plddt']:.1f}")
+    for _, r in template_df.iterrows():
+        src = r.get('source', '?')
+        plddt = r.get('mean_plddt', 0)
+        af3_info = ""
+        if src == 'af3':
+            bp = r.get('holo_mean_plddt', '?')
+            ap = r.get('apo_mean_plddt', '?')
+            af3_info = f" holo={bp:.1f} apo={ap:.1f}" if isinstance(bp, float) else ""
+        print(f"  {r['template_name']}: pLDDT={plddt:.1f} ({src}){af3_info}")
 
-    # Analyze all output directories
     print(f"\n{'='*80}")
-    print(f"Analyzing AF3 Structures Across {len(output_dirs)} Templates")
+    print(f"Analyzing AF3 Structures (ALL seeds) Across {len(output_dirs)} Templates")
     print(f"{'='*80}")
 
     all_frames = []
     for odir in output_dirs:
         print(f"\n--- {odir.name} ---")
+        csv_path = odir / "05_structure_analysis_results.csv"
+        if not args.force and csv_path.exists():
+            try:
+                df = pd.read_csv(csv_path)
+                if not df.empty:
+                    all_frames.append(df)
+                    print(f"  Cached: {csv_path} ({len(df)} designs) [use --force to re-run]")
+                    continue
+            except Exception:
+                pass  # re-analyze if CSV is corrupt
         try:
             analyzer = AlphaFoldStructureAnalyzer(
                 output_dir=odir,
                 reference_template=Path(args.template),
-                chromophore_range=chromophore_range
+                chromophore_range=chromophore_range,
             )
             df = analyzer.analyze_all_designs(state=args.state)
             if not df.empty:
                 all_frames.append(df)
-                # Save per-template CSV
-                csv_path = odir / "05_structure_analysis_results.csv"
                 df.to_csv(csv_path, index=False)
                 print(f"  Saved: {csv_path} ({len(df)} designs)")
             else:
-                print(f"  No designs with completed AF3 inference")
+                print(f"  No completed AF3 inference")
         except Exception as e:
             print(f"  Error: {e}")
-            continue
 
     if not all_frames:
-        print("\nNo designs analyzed across any template")
+        print("\nNo designs analyzed")
         sys.exit(1)
 
     df_combined = pd.concat(all_frames, ignore_index=True)
     print(f"\n{'='*80}")
-    print(f"Combined: {len(df_combined)} designs across "
+    print(f"Combined: {len(df_combined)} designs, "
           f"{df_combined['template'].nunique()} templates, "
           f"{df_combined['state'].nunique()} states")
+    if 'n_seeds' in df_combined.columns:
+        print(f"Seeds per design: {df_combined['n_seeds'].median():.0f} median")
     print(f"{'='*80}")
 
-    # Create combined visualizations
     central_dir = Path(args.analysis_output_dir)
     viz_dir = central_dir / "05_structure_analysis"
     create_visualizations(df_combined, template_df, viz_dir)
 
-    # Save combined CSV
     combined_csv = central_dir / "05_structure_analysis_results.csv"
     combined_csv.parent.mkdir(exist_ok=True, parents=True)
     df_combined.to_csv(combined_csv, index=False)
