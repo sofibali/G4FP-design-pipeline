@@ -572,6 +572,88 @@ def _plot_template_references(ax, template_df, x_col, y_col,
     ax.scatter([], [], marker='*', s=100, color='black', label='Templates')
 
 
+def _plot_top20_heatmap(df_all, df_selected, df_pareto, output_dir, csv_dir):
+    """Heatmap of top 20 designs showing all metrics for final selection."""
+    if "fitness_score" not in df_selected.columns:
+        return
+
+    top20 = df_selected.nlargest(20, "fitness_score")
+
+    metrics = [
+        'fitness_score',
+        'holo_mean_plddt', 'apo_mean_plddt', 'mean_plddt_diff',
+        'holo_ptm', 'apo_ptm', 'holo_iptm',
+        'chromophore_plddt_diff',
+        'global_rmsd', 'chromophore_rmsd',
+        'holo_ranking_score', 'apo_ranking_score',
+        'holo_mean_pae', 'apo_mean_pae',
+        'mean_plddt_diff_sd', 'global_rmsd_sd',
+    ]
+    all_cols = [c for c in metrics if c in top20.columns and top20[c].notna().any()]
+    if len(all_cols) < 3:
+        return
+
+    labels = []
+    for _, row in top20.iterrows():
+        tpl = str(row.get('template', '')).replace('output_G4FP_', '')
+        rank = int(row.get('final_rank', 0))
+        labels.append(f"R{rank:02d} d{int(row['seq_id']):03d} {tpl}")
+
+    mat = top20[all_cols].values.astype(float)
+
+    # Normalize each column 0-1, inverting columns where lower is better
+    invert_cols = {'apo_mean_plddt', 'apo_mean_pae', 'holo_mean_pae',
+                   'mean_plddt_diff_sd', 'global_rmsd_sd', 'apo_ranking_score'}
+    col_min = np.nanmin(mat, axis=0)
+    col_max = np.nanmax(mat, axis=0)
+    col_range = col_max - col_min
+    col_range[col_range == 0] = 1
+    mat_norm = (mat - col_min) / col_range
+    for j, col in enumerate(all_cols):
+        if col in invert_cols:
+            mat_norm[:, j] = 1.0 - mat_norm[:, j]
+
+    fig, ax = plt.subplots(figsize=(max(14, len(all_cols) * 0.9), 8))
+    im = ax.imshow(mat_norm, aspect='auto', cmap='RdYlGn')
+
+    ax.set_xticks(range(len(all_cols)))
+    col_labels = [c.replace('_', '\n').replace('chromophore\n', 'chrom\n')
+                  for c in all_cols]
+    ax.set_xticklabels(col_labels, rotation=45, ha='right', fontsize=7)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=8)
+
+    # Annotate with actual values
+    for i in range(len(labels)):
+        for j in range(len(all_cols)):
+            val = mat[i, j]
+            if np.isnan(val):
+                continue
+            text_color = 'white' if mat_norm[i, j] < 0.3 or mat_norm[i, j] > 0.85 else 'black'
+            fmt = '.0f' if abs(val) > 10 else '.2f' if abs(val) > 1 else '.3f'
+            ax.text(j, i, f'{val:{fmt}}', ha='center', va='center',
+                    fontsize=6, color=text_color)
+
+    # Mark Pareto-optimal designs
+    if not df_pareto.empty:
+        pareto_ids = set(df_pareto.get('global_id', pd.Series()))
+        for i, (_, row) in enumerate(top20.iterrows()):
+            gid = row.get('global_id', '')
+            if gid in pareto_ids:
+                ax.text(-0.7, i, 'P', ha='center', va='center',
+                        fontsize=9, fontweight='bold', color='red')
+
+    ax.set_title('Top 20 Candidates: All Metrics (green=better)')
+    plt.colorbar(im, ax=ax, label='Normalized score (1=best)', shrink=0.6)
+    plt.tight_layout()
+    plt.savefig(output_dir / "07_top20_heatmap.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    top20[['global_id', 'final_rank', 'template', 'seq_id'] + all_cols].to_csv(
+        csv_dir / "07_top20_heatmap_data.csv", index=False)
+    print("  07_top20_heatmap.png")
+
+
 def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
                           df_pareto: pd.DataFrame, output_dir: Path,
                           template_df: pd.DataFrame = None):
@@ -832,6 +914,59 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
                         bbox_inches="tight")
             plt.close()
             print("  07_pareto_plot.png")
+
+    # ---- 6. Fitness component histograms ----
+    components = [
+        ("mean_plddt_diff", "pLDDT Diff (Holo - Apo)", "#2CA02C"),
+        ("holo_ptm", "Holo pTM", "#E07B39"),
+        ("apo_mean_plddt", "Apo Mean pLDDT (lower=better)", "#4878CF"),
+        ("chromophore_plddt_diff", "Chromophore pLDDT Diff", "#9467BD"),
+        ("global_rmsd", "Global RMSD (A)", "#D62728"),
+        ("mean_plddt_diff_sd", "pLDDT Diff SD (lower=better)", "#7B68AE"),
+    ]
+    avail_comp = [(c, l, clr) for c, l, clr in components if c in df_all.columns]
+    if avail_comp:
+        n_comp = len(avail_comp)
+        ncols = min(3, n_comp)
+        nrows = (n_comp + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4.5 * nrows))
+        axes = np.atleast_2d(axes).flatten()
+
+        for idx, (col, label, color) in enumerate(avail_comp):
+            ax = axes[idx]
+            vals_all = df_all[col].dropna()
+            vals_sel = df_selected[col].dropna() if col in df_selected.columns else pd.Series()
+            vals_par = df_pareto[col].dropna() if col in df_pareto.columns else pd.Series()
+
+            ax.hist(vals_all, bins=30, alpha=0.3, color="gray", label="All")
+            if len(vals_sel) > 0:
+                ax.hist(vals_sel, bins=30, alpha=0.6, color=color, label="Selected")
+            if len(vals_par) > 0:
+                for v in vals_par:
+                    ax.axvline(v, color="red", alpha=0.15, linewidth=0.5)
+                ax.axvline(vals_par.median(), color="red", linestyle="--",
+                           alpha=0.7, label=f"Pareto median={vals_par.median():.2f}")
+
+            ax.axvline(vals_all.median(), color="black", linestyle=":",
+                       alpha=0.5, label=f"All median={vals_all.median():.2f}")
+            ax.set_xlabel(label)
+            ax.set_ylabel("Count")
+            ax.set_title(label)
+            ax.legend(fontsize=7)
+
+        for idx in range(len(avail_comp), len(axes)):
+            axes[idx].set_visible(False)
+
+        plt.suptitle("Fitness Score Components: All vs Selected vs Pareto",
+                     fontsize=13, y=1.01)
+        plt.tight_layout()
+        plt.savefig(output_dir / "07_fitness_components.png", dpi=300,
+                    bbox_inches="tight")
+        plt.close()
+        print("  07_fitness_components.png")
+
+    # ---- 7. Top 20 heatmap ----
+    _plot_top20_heatmap(df_all, df_selected, df_pareto, output_dir, csv_dir)
 
     # ---- Export CSVs ----
     df_all.to_csv(csv_dir / "07_all_designs_scored.csv", index=False)

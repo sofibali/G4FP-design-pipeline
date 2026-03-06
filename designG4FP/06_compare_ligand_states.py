@@ -553,6 +553,8 @@ def create_visualizations(df, template_df, output_dir):
     _plot_rmsd_vs_plddt_change(df, template_df, output_dir, csv_dir)
     _plot_sd_overview(df, output_dir, csv_dir)
     _plot_correlation_matrix(df, output_dir, csv_dir)
+    _plot_per_template_summary(df, template_df, output_dir, csv_dir)
+    _plot_top20_heatmap(df, output_dir, csv_dir)
 
     print(f"\nAll plots saved to: {output_dir}")
 
@@ -621,15 +623,27 @@ def _plot_plddt_comparison(df, template_df, output_dir, csv_dir):
     tpl_colors = _get_template_colors(template_df)
     fig, axes = plt.subplots(1, 3, figsize=(20, 6))
 
-    # Left: scatter by template
+    # Left: scatter by template with error bars from 25 seeds
     templates_in_data = sorted(plot_df['template'].unique())
+    holo_sd_col = 'holo_mean_plddt_sd'
+    apo_sd_col = 'apo_mean_plddt_sd'
+    has_errorbars = (holo_sd_col in plot_df.columns and apo_sd_col in plot_df.columns
+                     and plot_df[holo_sd_col].notna().any())
     for tpl in templates_in_data:
         tdf = plot_df[plot_df['template'] == tpl]
         short = tpl.replace('G4FP_', '')
         color = tpl_colors.get(tpl, 'steelblue')
-        axes[0].scatter(tdf['holo_mean_plddt'], tdf['apo_mean_plddt'],
-                        alpha=0.5, s=30, color=color,
-                        label=f'{short} ({len(tdf)})')
+        if has_errorbars:
+            axes[0].errorbar(tdf['holo_mean_plddt'], tdf['apo_mean_plddt'],
+                             xerr=tdf[holo_sd_col].fillna(0),
+                             yerr=tdf[apo_sd_col].fillna(0),
+                             fmt='o', markersize=4, alpha=0.4, color=color,
+                             elinewidth=0.3, capsize=0,
+                             label=f'{short} ({len(tdf)})')
+        else:
+            axes[0].scatter(tdf['holo_mean_plddt'], tdf['apo_mean_plddt'],
+                            alpha=0.5, s=30, color=color,
+                            label=f'{short} ({len(tdf)})')
 
     # Diagonal
     all_vals = pd.concat([plot_df['holo_mean_plddt'],
@@ -890,6 +904,145 @@ def _plot_sd_overview(df, output_dir, csv_dir):
     plt.savefig(output_dir / '05_sd_overview.png', dpi=300, bbox_inches='tight')
     plt.close()
     print("  05_sd_overview.png")
+
+
+def _plot_per_template_summary(df, template_df, output_dir, csv_dir):
+    """Bar chart: mean +/- SD of key metrics per template (25 seeds)."""
+    metrics = [
+        ('holo_mean_plddt', 'Holo Mean pLDDT'),
+        ('apo_mean_plddt', 'Apo Mean pLDDT'),
+        ('mean_plddt_diff', 'pLDDT Diff (Holo-Apo)'),
+        ('holo_ptm', 'Holo pTM'),
+        ('global_rmsd', 'Global RMSD (A)'),
+        ('chromophore_plddt_diff', 'Chromophore pLDDT Diff'),
+    ]
+    avail = [(m, label) for m, label in metrics if m in df.columns]
+    if not avail:
+        return
+
+    templates = sorted(df['template'].unique())
+    n_metrics = len(avail)
+    fig, axes = plt.subplots(2, (n_metrics + 1) // 2, figsize=(6 * ((n_metrics + 1) // 2), 10))
+    axes = axes.flatten()
+
+    for idx, (metric, label) in enumerate(avail):
+        ax = axes[idx]
+        sd_col = f'{metric}_sd'
+        means, sds, labels_t = [], [], []
+        for tpl in templates:
+            tdf = df[df['template'] == tpl]
+            vals = tdf[metric].dropna()
+            if len(vals) == 0:
+                continue
+            means.append(vals.mean())
+            if sd_col in tdf.columns and tdf[sd_col].notna().any():
+                sds.append(tdf[sd_col].mean())
+            else:
+                sds.append(vals.std())
+            labels_t.append(tpl.replace('G4FP_', '').replace('output_', ''))
+
+        if not means:
+            ax.set_visible(False)
+            continue
+
+        x = np.arange(len(labels_t))
+        color = STATE_COLORS['holo'] if 'holo' in metric else (
+            STATE_COLORS['apo'] if 'apo' in metric else '#7B68AE')
+        ax.bar(x, means, yerr=sds, capsize=4, alpha=0.7, color=color,
+               edgecolor='white', linewidth=0.5)
+
+        # Template AF3 reference lines
+        if template_df is not None and not template_df.empty:
+            for i, tpl_label in enumerate(labels_t):
+                tpl_row = template_df[template_df['template_name'].str.contains(
+                    tpl_label.split('_')[-1] if '_' in tpl_label else tpl_label)]
+                if not tpl_row.empty:
+                    ref_val = tpl_row.iloc[0].get(metric)
+                    if ref_val is not None and pd.notna(ref_val):
+                        ax.scatter([i], [ref_val], marker='*', s=120,
+                                   color='black', zorder=5)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels_t, rotation=45, ha='right', fontsize=7)
+        ax.set_ylabel(label)
+        ax.set_title(f'{label}\n(mean +/- SD across designs)')
+
+    for idx in range(len(avail), len(axes)):
+        axes[idx].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(output_dir / '07_per_template_summary.png', dpi=300,
+                bbox_inches='tight')
+    plt.close()
+    print("  07_per_template_summary.png")
+
+
+def _plot_top20_heatmap(df, output_dir, csv_dir):
+    """Heatmap of top 20 designs across all metrics for selection."""
+    score_col = 'mean_plddt_diff'
+    if score_col not in df.columns:
+        return
+
+    metrics = [
+        'holo_mean_plddt', 'apo_mean_plddt', 'mean_plddt_diff',
+        'holo_ptm', 'apo_ptm', 'holo_iptm',
+        'holo_chromophore_plddt', 'apo_chromophore_plddt', 'chromophore_plddt_diff',
+        'global_rmsd', 'chromophore_rmsd',
+        'holo_ranking_score', 'apo_ranking_score',
+        'holo_mean_pae', 'apo_mean_pae',
+    ]
+    # Also include key SD columns
+    sd_metrics = [f'{m}_sd' for m in ['mean_plddt_diff', 'global_rmsd',
+                                       'holo_mean_plddt', 'apo_mean_plddt']]
+    all_cols = [c for c in metrics + sd_metrics if c in df.columns and df[c].notna().any()]
+
+    if len(all_cols) < 3:
+        return
+
+    top20 = df.nlargest(20, score_col)
+    labels = []
+    for _, row in top20.iterrows():
+        tpl = str(row.get('template', '')).replace('G4FP_', '').replace('output_', '')
+        labels.append(f"d{int(row['seq_id']):03d}_{tpl}")
+
+    mat = top20[all_cols].values.astype(float)
+
+    # Normalize each column to 0-1 for display
+    col_min = np.nanmin(mat, axis=0)
+    col_max = np.nanmax(mat, axis=0)
+    col_range = col_max - col_min
+    col_range[col_range == 0] = 1
+    mat_norm = (mat - col_min) / col_range
+
+    fig, ax = plt.subplots(figsize=(max(14, len(all_cols) * 0.8), 8))
+    im = ax.imshow(mat_norm, aspect='auto', cmap='RdYlGn')
+
+    ax.set_xticks(range(len(all_cols)))
+    col_labels = [c.replace('_', '\n').replace('chromophore\n', 'chrom\n') for c in all_cols]
+    ax.set_xticklabels(col_labels, rotation=45, ha='right', fontsize=7)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=8)
+
+    # Annotate with actual values
+    for i in range(len(labels)):
+        for j in range(len(all_cols)):
+            val = mat[i, j]
+            if np.isnan(val):
+                continue
+            text_color = 'white' if mat_norm[i, j] < 0.3 or mat_norm[i, j] > 0.85 else 'black'
+            fmt = '.0f' if abs(val) > 10 else '.2f' if abs(val) > 1 else '.3f'
+            ax.text(j, i, f'{val:{fmt}}', ha='center', va='center',
+                    fontsize=6, color=text_color)
+
+    ax.set_title(f'Top 20 Designs by pLDDT Diff (all metrics, normalized colors)')
+    plt.colorbar(im, ax=ax, label='Normalized value (0=worst, 1=best)', shrink=0.6)
+    plt.tight_layout()
+    plt.savefig(output_dir / '08_top20_heatmap.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+    top20[['seq_id', 'template'] + all_cols].to_csv(
+        csv_dir / '08_top20_heatmap_data.csv', index=False)
+    print("  08_top20_heatmap.png")
 
 
 def _plot_correlation_matrix(df, output_dir, csv_dir):
