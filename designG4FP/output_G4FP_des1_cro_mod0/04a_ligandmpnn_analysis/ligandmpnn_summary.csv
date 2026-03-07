@@ -1,0 +1,2 @@
+total_sequences,unique_sequences,diversity_ratio,mean_pairwise_identity,mean_confidence,median_confidence,std_confidence
+10001,9994,0.9993000699930007,95.28352835283528,0.46066014000000005,0.4608,0.0077862091986902445
