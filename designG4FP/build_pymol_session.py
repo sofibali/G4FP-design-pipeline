@@ -23,6 +23,7 @@ from collections import defaultdict
 # Parse args after "--"
 top_n = 10
 output_name = "07_results/07_top_designs.pse"
+chromophore_range_override = None  # (start, end) tuple or None for auto-detection
 args = sys.argv[1:]
 if "--" in sys.argv:
     args = sys.argv[sys.argv.index("--") + 1:]
@@ -33,6 +34,10 @@ while i < len(args):
         i += 2
     elif args[i] == "--output" and i + 1 < len(args):
         output_name = args[i + 1]
+        i += 2
+    elif args[i] == "--chromophore-range" and i + 1 < len(args):
+        cs_str, ce_str = args[i + 1].split(',')
+        chromophore_range_override = (int(cs_str), int(ce_str))
         i += 2
     else:
         i += 1
@@ -54,6 +59,89 @@ try:
         base_dir = Path.cwd()
 except NameError:
     base_dir = Path.cwd()
+
+# ── Chromophore range detection ──
+# Known GFP-type chromophore residue names in PDB HETATM records
+_CHROMOPHORE_RESNAMES = {'CRO', 'SYG', 'CRQ', 'CFO', 'FME'}
+
+def _detect_chromophore_range(pdb_file, chain_id='A'):
+    """Return (start, end) 1-indexed chromophore range from a template PDB.
+
+    Counts the number of standard ATOM residues on *chain_id* that appear
+    before the chromophore HETATM (CRO / SYG etc.) and returns the range
+    (n_before + 1, n_before + 3) – the three designed-sequence positions that
+    immediately follow the chromophore gap.  Falls back to (197, 199).
+    """
+    try:
+        from Bio.PDB import PDBParser
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('c', str(pdb_file))
+        atom_resids = set()
+        cro_resid = None
+        for model in structure:
+            for chain in model:
+                if chain.get_id() != chain_id:
+                    continue
+                for residue in chain:
+                    resname = residue.get_resname().strip()
+                    hetflag = residue.get_id()[0].strip()
+                    resid = residue.get_id()[1]
+                    if hetflag and resname in _CHROMOPHORE_RESNAMES:
+                        if cro_resid is None or resid < cro_resid:
+                            cro_resid = resid
+                    elif not hetflag:
+                        atom_resids.add(resid)
+            break
+        if cro_resid is not None:
+            n_before = sum(1 for r in atom_resids if r < cro_resid)
+            return (n_before + 1, n_before + 3)
+    except Exception:
+        pass
+    return (197, 199)
+
+
+# Determine chromophore range: use CLI override, or auto-detect per template
+# and take the most common range among the top candidates' templates.
+if chromophore_range_override is not None:
+    chrom_start, chrom_end = chromophore_range_override
+else:
+    # Detect candidate templates first (need to peek at the CSV)
+    _cand_csv = base_dir / "07_results" / "07_final_candidates.csv"
+    _detected_ranges = {}
+    if _cand_csv.exists():
+        try:
+            with open(_cand_csv) as _f:
+                import csv as _csv
+                _cands = list(_csv.DictReader(_f))
+            # Collect ranges for templates of the top designs
+            for _c in _cands[:top_n]:
+                _tpl = _c.get('template', '')
+                if _tpl and _tpl not in _detected_ranges:
+                    _pdb = base_dir / "inputs" / f"{_tpl}.pdb"
+                    if _pdb.exists():
+                        _detected_ranges[_tpl] = _detect_chromophore_range(_pdb)
+        except Exception:
+            pass
+    if not _detected_ranges:
+        # Fall back to first available template PDB
+        for _pdb in sorted((base_dir / "inputs").glob("G4FP_*.pdb")):
+            _detected_ranges[_pdb.stem] = _detect_chromophore_range(_pdb)
+            break
+    if _detected_ranges:
+        # Use the most common range across the top candidates' templates
+        from collections import Counter as _Counter
+        _most_common = _Counter(_detected_ranges.values()).most_common(1)[0][0]
+        chrom_start, chrom_end = _most_common
+        _range_str = ", ".join(f"{t}: {r}" for t, r in _detected_ranges.items())
+        print(f"Auto-detected chromophore ranges by template: {_range_str}")
+        if len(set(_detected_ranges.values())) > 1:
+            print(f"  Note: templates have different ranges; using most common "
+                  f"({chrom_start}-{chrom_end}). Pass --chromophore-range to override.")
+        else:
+            print(f"Auto-detected chromophore range: {chrom_start}-{chrom_end}")
+    else:
+        chrom_start, chrom_end = 197, 199
+        print(f"Chromophore range: {chrom_start}-{chrom_end} (default fallback)")
 
 # ── Load top candidates ──
 candidates_csv = base_dir / "07_results" / "07_final_candidates.csv"
@@ -302,8 +390,8 @@ cmd.bg_color("white")
 cmd.hide("everything")
 cmd.show("cartoon", "chain A")
 
-# Highlight chromophore region (residues 197-199) as sticks
-cmd.select("chromophore", "resi 197-199 and chain A")
+# Highlight chromophore region as sticks
+cmd.select("chromophore", f"resi {chrom_start}-{chrom_end} and chain A")
 cmd.show("sticks", "chromophore")
 cmd.color("yellow", "chromophore")
 cmd.deselect()

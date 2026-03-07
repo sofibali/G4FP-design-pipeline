@@ -124,13 +124,11 @@ echo ""
 read -p "Run STEP 4b? [y/N] " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    CHROM_START=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_start'])")
-    CHROM_END=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_end'])")
-
-    # Auto-discovers all output_G4FP_* dirs, uses G4FP_des1_cro_mod0 as reference
+    # Auto-discovers all output_G4FP_* dirs; chromophore range is auto-detected
+    # per template from the PDB unless overridden via --chromophore-range.
+    # To override: --chromophore-range "197,199"
     python3 05_analyze_af3_structures.py \
-        --state both \
-        --chromophore-range "$CHROM_START,$CHROM_END"
+        --state both
 else
     echo "Skipping Step 4b"
 fi
@@ -144,12 +142,9 @@ echo ""
 read -p "Run STEP 4c? [y/N] " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    CHROM_START=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_start'])")
-    CHROM_END=$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG_FILE')); print(c['analysis']['chromophore_end'])")
-
-    # Auto-discovers all output_G4FP_* dirs, saves per-template + combined CSVs
-    python3 06_compare_ligand_states.py \
-        --chromophore-range "$CHROM_START,$CHROM_END"
+    # Auto-discovers all output_G4FP_* dirs; chromophore range is auto-detected
+    # per template from the PDB unless overridden via --chromophore-range.
+    python3 06_compare_ligand_states.py
 else
     echo "Skipping Step 4c"
 fi

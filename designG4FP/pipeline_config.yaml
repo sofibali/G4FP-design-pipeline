@@ -26,6 +26,8 @@ alphafold3:
   model_dir: /mnt/alphafold3
   gpu_id: '0'
 analysis:
+  # chromophore_start and chromophore_end are auto-detected from the template
+  # PDB by locating the CRO HETATM residue. Override here only if needed.
   chromophore_start: 197
   chromophore_end: 199
   sequence_diversity:
