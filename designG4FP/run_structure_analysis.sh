@@ -27,7 +27,9 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Configuration
-CHROMOPHORE_RANGE="175,225"  # Adjust if needed
+# Chromophore range is auto-detected from each template PDB by default.
+# Set this to override for all templates (e.g. "197,199").
+CHROMOPHORE_RANGE=""
 
 # Parse arguments
 if [ $# -lt 1 ]; then
@@ -66,7 +68,7 @@ echo -e "${GREEN}G4FP Structure Analysis Pipeline${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Template: $TEMPLATE_PDB"
-echo "Chromophore range: $CHROMOPHORE_RANGE"
+echo "Chromophore range: ${CHROMOPHORE_RANGE:-auto-detected per template}"
 echo "Output directories: ${#OUTPUT_DIRS[@]}"
 echo ""
 
@@ -112,11 +114,15 @@ for OUTPUT_DIR in "${OUTPUT_DIRS[@]}"; do
     # 1. Run individual structure analysis (05)
     echo ""
     echo -e "${BLUE}[1/2] Running structure analysis...${NC}"
+    CHROM_ARG=()
+    if [ -n "$CHROMOPHORE_RANGE" ]; then
+        CHROM_ARG=(--chromophore-range "$CHROMOPHORE_RANGE")
+    fi
     python 05_analyze_af3_structures.py \
         --output-dir "$OUTPUT_DIR" \
         --template "$TEMPLATE_PDB" \
         --state "$STATE" \
-        --chromophore-range "$CHROMOPHORE_RANGE"
+        "${CHROM_ARG[@]}"
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Structure analysis complete${NC}"
@@ -133,7 +139,7 @@ for OUTPUT_DIR in "${OUTPUT_DIRS[@]}"; do
         python 06_compare_ligand_states.py \
             --output-dir "$OUTPUT_DIR" \
             --template "$TEMPLATE_PDB" \
-            --chromophore-range "$CHROMOPHORE_RANGE"
+            "${CHROM_ARG[@]}"
         
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}✓ Ligand state comparison complete${NC}"

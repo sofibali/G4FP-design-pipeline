@@ -7,8 +7,13 @@ Reports mean +/- SD for pLDDT, RMSD, pTM, ipTM, ranking_score, PAE.
 Scatter plots colored by SD show prediction confidence.
 Template AF3 predictions used as reference when available.
 
+The three-residue chromophore window is auto-detected for each template by
+locating the CRO HETATM residue in the template PDB and counting the standard
+protein residues that precede it.  Use ``--chromophore-range`` to override.
+
 Usage:
-    python 05_analyze_af3_structures.py --chromophore-range 197,199
+    python 05_analyze_af3_structures.py                              # auto-detect
+    python 05_analyze_af3_structures.py --chromophore-range 197,199  # override
     python 05_analyze_af3_structures.py --output-dir output_G4FP_des1_cro_mod0 --state both
 """
 
@@ -38,7 +43,54 @@ plt.rcParams['font.size'] = 10
 # Map user-facing state names to directory names on disk
 DISK_STATE = {'holo': 'bound', 'apo': 'apo'}
 
+# Residue names that represent the GFP-type chromophore in PDB HETATM records
+CHROMOPHORE_RESNAMES = {'CRO', 'SYG', 'CRQ', 'CFO', 'FME'}
+
 # ─── Shared utilities ─────────────────────────────────────────────────
+
+def detect_chromophore_range_from_pdb(pdb_file: Path,
+                                       chain_id: str = 'A') -> Tuple[int, int]:
+    """Detect the three-residue chromophore range from a template PDB.
+
+    Locates the CRO (or related) HETATM residue on ``chain_id`` and counts
+    how many standard ATOM residues precede it in that chain.  The returned
+    range ``(n_before + 1, n_before + 3)`` covers the three positions in the
+    designed (ATOM-only) sequence that immediately follow the chromophore gap,
+    which is the structurally equivalent region across templates of different
+    lengths.
+
+    Falls back to ``(197, 199)`` when no chromophore HETATM is found.
+    """
+    pdb_parser = PDBParser(QUIET=True)
+    structure = pdb_parser.get_structure('chrom', str(pdb_file))
+
+    atom_resids = set()
+    cro_resid = None
+
+    for model in structure:
+        for chain in model:
+            if chain.get_id() != chain_id:
+                continue
+            for residue in chain:
+                resname = residue.get_resname().strip()
+                hetflag = residue.get_id()[0].strip()
+                resid = residue.get_id()[1]
+                if hetflag and resname in CHROMOPHORE_RESNAMES:
+                    # Use the lowest residue number when multiple chromophore
+                    # HETATM records exist (e.g. a rare split-conformation PDB);
+                    # in practice all G4FP templates have a single CRO at 197.
+                    if cro_resid is None or resid < cro_resid:
+                        cro_resid = resid
+                elif not hetflag:
+                    atom_resids.add(resid)
+        break  # first model only
+
+    if cro_resid is None:
+        return (197, 199)  # fallback default
+
+    n_before = sum(1 for r in atom_resids if r < cro_resid)
+    return (n_before + 1, n_before + 3)
+
 
 def discover_seed_sample_dirs(design_dir: Path) -> List[Tuple[int, int, Path]]:
     """Find all seed-N_sample-M directories within a design output dir."""
@@ -99,8 +151,15 @@ def find_af3_result_dir(base_dir: Path) -> Optional[Path]:
     return None
 
 
-def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) -> pd.DataFrame:
-    """Load template metrics from AF3 outputs if available, else B-factors."""
+def load_template_metrics(base_dir: Path,
+                          chromophore_range: Optional[Tuple[int, int]] = None) -> pd.DataFrame:
+    """Load template metrics from AF3 outputs if available, else B-factors.
+
+    When *chromophore_range* is ``None`` the three-residue chromophore window
+    is auto-detected from each template PDB via
+    :func:`detect_chromophore_range_from_pdb`.  Pass an explicit tuple to
+    override for all templates.
+    """
     tpl_dir = base_dir / "template_af3_outputs"
     inputs_dir = base_dir / "inputs"
     pdb_parser = PDBParser(QUIET=True)
@@ -109,6 +168,13 @@ def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) ->
     for pdb in sorted(inputs_dir.glob("G4FP_*.pdb")):
         tpl_name = pdb.stem
         rec = {'template_name': tpl_name, 'source': 'bfactor'}
+
+        # Determine chromophore range for this template
+        chrom_range = (chromophore_range
+                       if chromophore_range is not None
+                       else detect_chromophore_range_from_pdb(pdb))
+        rec['chromophore_start'] = chrom_range[0]
+        rec['chromophore_end'] = chrom_range[1]
 
         # B-factor baseline
         structure = pdb_parser.get_structure('s', str(pdb))
@@ -123,7 +189,7 @@ def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) ->
             b_arr = np.array(b_factors)
             rec['mean_plddt'] = float(np.mean(b_arr))
             rec['n_residues'] = len(b_arr)
-            cs, ce = chromophore_range
+            cs, ce = chrom_range
             if len(b_arr) >= ce:
                 rec['chromophore_mean_plddt'] = float(np.mean(b_arr[cs-1:ce]))
 
@@ -164,7 +230,7 @@ def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) ->
                     plddt = compute_per_residue_plddt(fc, 'A')
                     if plddt is not None and len(plddt) > 1:
                         plddts.append(float(np.mean(plddt)))
-                        cs, ce = chromophore_range
+                        cs, ce = chrom_range
                         if len(plddt) >= ce:
                             chrom_plddts.append(float(np.mean(plddt[cs-1:ce])))
 
@@ -196,15 +262,22 @@ class AlphaFoldStructureAnalyzer:
     """Analyze AF3 predictions for one output directory, all seeds."""
 
     def __init__(self, output_dir: Path, reference_template: Path,
-                 chromophore_range: Tuple[int, int] = (197, 199)):
+                 chromophore_range: Optional[Tuple[int, int]] = None):
         self.output_dir = Path(output_dir)
         self.reference_template = Path(reference_template)
-        self.chromophore_range = chromophore_range
         self.pdb_parser = PDBParser(QUIET=True)
         self.cif_parser = MMCIFParser(QUIET=True)
         self.ref_structure = self._load_structure(self.reference_template)
         self.ref_ca_atoms = self._extract_ca_atoms(self.ref_structure)
         self.template_name = self.output_dir.name.replace("output_", "")
+        # Auto-detect chromophore range from template PDB when not provided
+        if chromophore_range is None:
+            self.chromophore_range = detect_chromophore_range_from_pdb(
+                self.reference_template)
+            print(f"  Chromophore range (auto): {self.chromophore_range}")
+        else:
+            self.chromophore_range = chromophore_range
+            print(f"  Chromophore range (override): {self.chromophore_range}")
         print(f"  Reference: {self.reference_template} ({len(self.ref_ca_atoms)} CA)")
 
     def _load_structure(self, filepath: Path):
@@ -345,6 +418,8 @@ class AlphaFoldStructureAnalyzer:
         result = {
             'seq_id': seq_id, 'design_name': design_dir.name,
             'state': state, 'template': self.template_name, 'n_seeds': 1,
+            'chromophore_start': self.chromophore_range[0],
+            'chromophore_end': self.chromophore_range[1],
         }
         model_files = list(design_dir.glob("*_model.cif"))
         if not model_files:
@@ -403,6 +478,8 @@ class AlphaFoldStructureAnalyzer:
             'seq_id': seq_id, 'design_name': design_dir.name,
             'state': state, 'template': self.template_name,
             'n_seeds': len(seed_results),
+            'chromophore_start': self.chromophore_range[0],
+            'chromophore_end': self.chromophore_range[1],
         }
 
         df_seeds = pd.DataFrame(seed_results)
@@ -800,15 +877,20 @@ def main():
                         help='Reference structure for RMSD')
     parser.add_argument('--state', type=str, default='both',
                         choices=['holo', 'apo', 'both'])
-    parser.add_argument('--chromophore-range', type=str, default='197,199')
+    parser.add_argument('--chromophore-range', type=str, default=None,
+                        help='Chromophore residue range as start,end (e.g. 197,199). '
+                             'Auto-detected from each template PDB when omitted.')
     parser.add_argument('--analysis-output-dir', type=str,
                         default='analysis_output')
     parser.add_argument('--force', action='store_true',
                         help='Re-analyze even if results CSV exists')
 
     args = parser.parse_args()
-    cs, ce = map(int, args.chromophore_range.split(','))
-    chromophore_range = (cs, ce)
+    if args.chromophore_range:
+        cs, ce = map(int, args.chromophore_range.split(','))
+        chromophore_range: Optional[Tuple[int, int]] = (cs, ce)
+    else:
+        chromophore_range = None  # auto-detect per template
     base_dir = Path(__file__).resolve().parent
 
     if args.output_dir:
@@ -823,17 +905,19 @@ def main():
         sys.exit(1)
 
     # Load template metrics (AF3 if available, else B-factors)
+    # chromophore_range=None triggers per-template auto-detection
     template_df = load_template_metrics(base_dir, chromophore_range)
     print(f"\nLoaded {len(template_df)} template references:")
     for _, r in template_df.iterrows():
         src = r.get('source', '?')
         plddt = r.get('mean_plddt', 0)
+        crange = f"chrom={r.get('chromophore_start', '?')}-{r.get('chromophore_end', '?')}"
         af3_info = ""
         if src == 'af3':
             bp = r.get('holo_mean_plddt', '?')
             ap = r.get('apo_mean_plddt', '?')
             af3_info = f" holo={bp:.1f} apo={ap:.1f}" if isinstance(bp, float) else ""
-        print(f"  {r['template_name']}: pLDDT={plddt:.1f} ({src}){af3_info}")
+        print(f"  {r['template_name']}: pLDDT={plddt:.1f} ({src}) {crange}{af3_info}")
 
     print(f"\n{'='*80}")
     print(f"Analyzing AF3 Structures (ALL seeds) Across {len(output_dirs)} Templates")

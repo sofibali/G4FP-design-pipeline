@@ -6,8 +6,10 @@ Computational pipeline for designing G-quadruplex-dependent fluorescent proteins
 
 G4FP is based on the circularly permuted GFP (cpGFP) scaffold used in calcium sensors like GCaMP. The key idea is to couple protein folding/fluorescence to G4 DNA binding:
 
-- **Bound state (holo):** Protein + G4 DNA + K+ ions. The G4 stabilizes the barrel fold, the chromophore (CRO, residues 197-199) matures, and the protein fluoresces.
+- **Bound state (holo):** Protein + G4 DNA + K+ ions. The G4 stabilizes the barrel fold, the chromophore (CRO) matures, and the protein fluoresces.
 - **Unbound state (apo):** Protein alone. Without G4 stabilization, the barrel is partially or fully unfolded and the chromophore cannot mature -- no fluorescence.
+
+The chromophore is defined as the three residues in the GFP sequence that form the CRO chromophore upon post-translational cyclization. Because the ten template structures have different N-terminal extensions, the residue IDs of these three positions differ across templates. Scripts 05 and 06 (and `build_pymol_session.py`) **auto-detect** the correct three-residue window for each template by locating the CRO HETATM in the template PDB and counting the standard ATOM residues that precede it. The `--chromophore-range` CLI flag can still override this for all templates when needed.
 
 The design goal is to maximize the **stability difference** between bound and unbound states: high pLDDT/pTM when bound, low pLDDT/disordered when apo. The final target is **100-1000 sequences** with the largest bound-vs-apo structural difference for experimental testing.
 
