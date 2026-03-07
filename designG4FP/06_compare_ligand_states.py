@@ -260,7 +260,7 @@ class LigandStateComparator:
             try:
                 with open(sf) as f:
                     sc = json.load(f)
-                for k in ['ptm', 'iptm', 'ranking_score']:
+                for k in ['ptm', 'iptm', 'ranking_score', 'fraction_disordered']:
                     if k in sc:
                         result[k] = sc[k]
             except Exception:

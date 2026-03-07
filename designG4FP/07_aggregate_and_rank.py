@@ -303,82 +303,131 @@ def load_template_metrics(base_dir: Path) -> pd.DataFrame:
 # Scoring
 # ---------------------------------------------------------------------------
 
-def compute_fitness_score(df: pd.DataFrame,
-                          w_plddt_diff: float = 0.30,
-                          w_holo_ptm: float = 0.20,
-                          w_apo_disorder: float = 0.20,
-                          w_chrom_plddt_diff: float = 0.15,
-                          w_rmsd: float = 0.10,
-                          w_confidence: float = 0.05) -> pd.DataFrame:
-    """
-    Compute a composite G4FP fitness score.
+def compute_relative_apo_plddt(df: pd.DataFrame,
+                                template_df: pd.DataFrame) -> pd.DataFrame:
+    """Compute apo pLDDT relative to each design's parent template.
 
-    Higher score = better G4-dependent folding switch.
+    Positive = design apo is more stable than template (bad for switch).
+    Negative = design apo is less stable than template (good).
+    """
+    df = df.copy()
+    df["apo_plddt_vs_template"] = np.nan
+
+    if template_df is None or template_df.empty:
+        return df
+
+    # Build template -> apo_mean_plddt map
+    tpl_apo = {}
+    for _, row in template_df.iterrows():
+        tname = row["template_name"]
+        ap = row.get("apo_mean_plddt")
+        if pd.notna(ap):
+            tpl_apo[tname] = ap
+
+    for idx, row in df.iterrows():
+        tpl = str(row.get("template", "")).replace("output_", "")
+        ap = row.get("apo_mean_plddt")
+        if pd.isna(ap):
+            continue
+        ref = tpl_apo.get(tpl)
+        if ref is not None:
+            df.at[idx, "apo_plddt_vs_template"] = ap - ref
+
+    return df
+
+
+def compute_fitness_score(df: pd.DataFrame,
+                          w_chrom_holo: float = 0.25,
+                          w_iptm: float = 0.25,
+                          w_rmsd: float = 0.15,
+                          w_holo_ptm: float = 0.15,
+                          w_rel_apo: float = 0.10,
+                          w_confidence: float = 0.05,
+                          w_chrom_diff: float = 0.05) -> pd.DataFrame:
+    """
+    Compute G4FP fitness score prioritizing chromophore and ligand interface.
 
     Components (all normalized 0-1 before weighting):
-      - delta_plddt:  mean_plddt_diff (holo - apo), higher = better
-      - holo_ptm:    holo state pTM, higher = better fold
-      - apo_disorder: (100 - apo_mean_plddt)/100, higher = more disordered apo
-      - chrom_diff:   chromophore_plddt_diff, higher = better local switch
-      - rmsd:         global_rmsd between states, higher = more structural change
-      - confidence:   1 - normalized(mean_plddt_diff_sd), penalizes high variability
+      - chrom_holo:   holo chromophore pLDDT, higher = better positioned
+      - iptm:         holo iPTM, higher = better protein-DNA interface
+      - rmsd:         global RMSD holo vs apo, higher = more structural change
+      - holo_ptm:     holo pTM, higher = better fold
+      - rel_apo:      apo pLDDT relative to template (lower = better switch)
+      - confidence:   1 - normalized(SD), reproducible predictions
+      - chrom_diff:   chromophore pLDDT diff (holo - apo)
     """
     df = df.copy()
 
     def _norm(series):
-        """Min-max normalize to 0-1."""
         smin, smax = series.min(), series.max()
         if smax == smin:
             return pd.Series(0.5, index=series.index)
         return (series - smin) / (smax - smin)
 
-    # Delta pLDDT (higher = bigger switch)
-    if "mean_plddt_diff" in df.columns:
-        df["_n_plddt_diff"] = _norm(df["mean_plddt_diff"].fillna(0))
+    # Chromophore holo pLDDT (higher = better)
+    chrom_col = "holo_chromophore_plddt"
+    if chrom_col not in df.columns:
+        chrom_col = "chromophore_holo_plddt"
+    if chrom_col in df.columns:
+        df["_n_chrom_holo"] = _norm(df[chrom_col].fillna(df[chrom_col].median()))
     else:
-        df["_n_plddt_diff"] = 0
+        df["_n_chrom_holo"] = 0.5
 
-    # Holo pTM (higher = better fold when holo)
-    if "holo_ptm" in df.columns:
-        df["_n_holo_ptm"] = _norm(df["holo_ptm"].fillna(0))
+    # iPTM: protein-DNA interface (higher = better)
+    if "holo_iptm" in df.columns:
+        df["_n_iptm"] = _norm(df["holo_iptm"].fillna(df["holo_iptm"].median()))
     else:
-        df["_n_holo_ptm"] = 0
+        df["_n_iptm"] = 0.5
 
-    # Apo disorder (higher = more disordered without ligand)
-    if "apo_mean_plddt" in df.columns:
-        df["_n_apo_disorder"] = _norm(100 - df["apo_mean_plddt"].fillna(100))
-    else:
-        df["_n_apo_disorder"] = 0
-
-    # Chromophore pLDDT difference
-    if "chromophore_plddt_diff" in df.columns:
-        df["_n_chrom_diff"] = _norm(df["chromophore_plddt_diff"].fillna(0))
-    else:
-        df["_n_chrom_diff"] = 0
-
-    # RMSD between states
+    # RMSD (higher = more structural change)
     if "global_rmsd" in df.columns:
         df["_n_rmsd"] = _norm(df["global_rmsd"].fillna(0))
     else:
         df["_n_rmsd"] = 0
 
-    # Confidence penalty: lower SD across seeds = more reproducible prediction
+    # Holo pTM (higher = better fold)
+    if "holo_ptm" in df.columns:
+        df["_n_holo_ptm"] = _norm(df["holo_ptm"].fillna(0))
+    else:
+        df["_n_holo_ptm"] = 0
+
+    # Relative apo pLDDT (lower = better switch, inverted)
+    if "apo_plddt_vs_template" in df.columns:
+        rel = df["apo_plddt_vs_template"].fillna(0)
+        df["_n_rel_apo"] = 1.0 - _norm(rel)  # invert: lower relative = higher score
+    elif "apo_mean_plddt" in df.columns:
+        df["_n_rel_apo"] = 1.0 - _norm(df["apo_mean_plddt"].fillna(100))
+    else:
+        df["_n_rel_apo"] = 0.5
+
+    # Confidence (lower SD = better)
     if "mean_plddt_diff_sd" in df.columns:
         sd_vals = df["mean_plddt_diff_sd"].fillna(df["mean_plddt_diff_sd"].median())
         df["_n_confidence"] = 1.0 - _norm(sd_vals)
     else:
         df["_n_confidence"] = 0.5
 
+    # Chromophore pLDDT diff
+    if "chromophore_plddt_diff" in df.columns:
+        df["_n_chrom_diff"] = _norm(df["chromophore_plddt_diff"].fillna(0))
+    else:
+        df["_n_chrom_diff"] = 0
+
     df["fitness_score"] = (
-        w_plddt_diff * df["_n_plddt_diff"]
-        + w_holo_ptm * df["_n_holo_ptm"]
-        + w_apo_disorder * df["_n_apo_disorder"]
-        + w_chrom_plddt_diff * df["_n_chrom_diff"]
+        w_chrom_holo * df["_n_chrom_holo"]
+        + w_iptm * df["_n_iptm"]
         + w_rmsd * df["_n_rmsd"]
+        + w_holo_ptm * df["_n_holo_ptm"]
+        + w_rel_apo * df["_n_rel_apo"]
         + w_confidence * df["_n_confidence"]
+        + w_chrom_diff * df["_n_chrom_diff"]
     )
 
-    df.drop(columns=[c for c in df.columns if c.startswith("_n_")], inplace=True)
+    # Keep normalized components for diagnostic plots
+    component_cols = [c for c in df.columns if c.startswith("_n_")]
+    df.rename(columns={c: f"score_component{c[2:]}" for c in component_cols},
+              inplace=True)
+
     return df
 
 
@@ -389,8 +438,9 @@ def compute_fitness_score(df: pd.DataFrame,
 def apply_hard_filters(df: pd.DataFrame,
                        min_holo_plddt: float = 70.0,
                        min_holo_ptm: float = 0.5,
-                       max_apo_plddt: float = 60.0) -> pd.DataFrame:
-    """Apply hard cutoffs. Designs that fail any filter are excluded."""
+                       min_holo_iptm: float = 0.3,
+                       max_apo_plddt: float = None) -> pd.DataFrame:
+    """Apply hard cutoffs. No absolute apo filter by default (use relative ranking)."""
     n_before = len(df)
     mask = pd.Series(True, index=df.index)
 
@@ -398,18 +448,24 @@ def apply_hard_filters(df: pd.DataFrame,
         mask &= df["holo_mean_plddt"] >= min_holo_plddt
     if "holo_ptm" in df.columns:
         mask &= df["holo_ptm"] >= min_holo_ptm
-    if "apo_mean_plddt" in df.columns:
+    if "holo_iptm" in df.columns and min_holo_iptm > 0:
+        mask &= df["holo_iptm"] >= min_holo_iptm
+    if max_apo_plddt is not None and "apo_mean_plddt" in df.columns:
         mask &= df["apo_mean_plddt"] <= max_apo_plddt
 
     df_filtered = df[mask].copy()
     n_after = len(df_filtered)
+    filters_str = f"holo_plddt >= {min_holo_plddt}, holo_ptm >= {min_holo_ptm}"
+    if min_holo_iptm > 0:
+        filters_str += f", holo_iptm >= {min_holo_iptm}"
+    if max_apo_plddt is not None:
+        filters_str += f", apo_plddt <= {max_apo_plddt}"
     print(f"\nHard filters: {n_before} -> {n_after} designs "
           f"(removed {n_before - n_after})")
-    print(f"  holo_plddt >= {min_holo_plddt}, holo_ptm >= {min_holo_ptm}, "
-          f"apo_plddt <= {max_apo_plddt}")
+    print(f"  {filters_str}")
 
     if n_after == 0:
-        print("\nWARNING: All designs filtered out! Relaxing filters to keep top 50%.")
+        print("\nWARNING: All designs filtered out! Relaxing to top 50%.")
         df_sorted = df.sort_values("fitness_score", ascending=False)
         df_filtered = df_sorted.head(len(df_sorted) // 2).copy()
         print(f"  Kept {len(df_filtered)} designs by fitness score fallback.")
@@ -572,86 +628,215 @@ def _plot_template_references(ax, template_df, x_col, y_col,
     ax.scatter([], [], marker='*', s=100, color='black', label='Templates')
 
 
-def _plot_top20_heatmap(df_all, df_selected, df_pareto, output_dir, csv_dir):
-    """Heatmap of top 20 designs showing all metrics for final selection."""
-    if "fitness_score" not in df_selected.columns:
+def _plot_top10_per_template_heatmap(df_all, df_selected, df_pareto,
+                                     output_dir, csv_dir):
+    """Heatmap of top 10 designs per template, columns sorted by fitness weight.
+
+    Only includes metrics used in the fitness score + fraction_disordered.
+    """
+    if "fitness_score" not in df_all.columns:
         return
 
-    top20 = df_selected.nlargest(20, "fitness_score")
+    # Collect top 10 per template by fitness score
+    frames = []
+    for tpl in sorted(df_all["template"].unique()):
+        tpl_df = df_all[df_all["template"] == tpl].nlargest(10, "fitness_score")
+        frames.append(tpl_df)
+    if not frames:
+        return
+    top_per_tpl = pd.concat(frames).sort_values("fitness_score", ascending=False)
 
-    metrics = [
-        'fitness_score',
-        'holo_mean_plddt', 'apo_mean_plddt', 'mean_plddt_diff',
-        'holo_ptm', 'apo_ptm', 'holo_iptm',
-        'chromophore_plddt_diff',
-        'global_rmsd', 'chromophore_rmsd',
-        'holo_ranking_score', 'apo_ranking_score',
-        'holo_mean_pae', 'apo_mean_pae',
-        'mean_plddt_diff_sd', 'global_rmsd_sd',
+    # Columns ordered by fitness weight importance, then diagnostics
+    # Resolve chromophore column name
+    chrom_col = ("holo_chromophore_plddt" if "holo_chromophore_plddt" in top_per_tpl.columns
+                 else "chromophore_holo_plddt")
+    metrics_ordered = [
+        ('fitness_score', 'Fitness\nScore', False),
+        (chrom_col, 'Chrom\npLDDT\n(25%)', False),
+        ('holo_iptm', 'iPTM\n(25%)', False),
+        ('global_rmsd', 'RMSD\n(15%)', False),
+        ('holo_ptm', 'pTM\n(15%)', False),
+        ('apo_plddt_vs_template', 'Apo pLDDT\nvs Tpl\n(10%)', True),
+        ('mean_plddt_diff_sd', 'pLDDT Diff\nSD (5%)', True),
+        ('chromophore_plddt_diff', 'Chrom\nDiff (5%)', False),
+        ('holo_fraction_disordered', 'Holo\nDisorder', True),
+        ('apo_fraction_disordered', 'Apo\nDisorder', True),
     ]
-    all_cols = [c for c in metrics if c in top20.columns and top20[c].notna().any()]
-    if len(all_cols) < 3:
+    # Filter to available columns
+    available = [(c, l, inv) for c, l, inv in metrics_ordered
+                 if c in top_per_tpl.columns and top_per_tpl[c].notna().any()]
+    if len(available) < 3:
         return
 
+    all_cols = [c for c, _, _ in available]
+    col_labels = [l for _, l, _ in available]
+    invert_flags = [inv for _, _, inv in available]
+
+    # Row labels
     labels = []
-    for _, row in top20.iterrows():
-        tpl = str(row.get('template', '')).replace('output_G4FP_', '')
-        rank = int(row.get('final_rank', 0))
-        labels.append(f"R{rank:02d} d{int(row['seq_id']):03d} {tpl}")
+    for _, row in top_per_tpl.iterrows():
+        tpl = str(row.get('template', '')).replace('output_G4FP_', '').replace('G4FP_', '')
+        sid = int(row['seq_id'])
+        labels.append(f"d{sid:03d} {tpl}")
 
-    mat = top20[all_cols].values.astype(float)
+    mat = top_per_tpl[all_cols].values.astype(float)
 
-    # Normalize each column 0-1, inverting columns where lower is better
-    invert_cols = {'apo_mean_plddt', 'apo_mean_pae', 'holo_mean_pae',
-                   'mean_plddt_diff_sd', 'global_rmsd_sd', 'apo_ranking_score'}
-    col_min = np.nanmin(mat, axis=0)
-    col_max = np.nanmax(mat, axis=0)
+    # Normalize 0-1 across ALL 1000 designs (not just top) for fair color
+    col_min = np.array([df_all[c].min() for c in all_cols])
+    col_max = np.array([df_all[c].max() for c in all_cols])
     col_range = col_max - col_min
     col_range[col_range == 0] = 1
     mat_norm = (mat - col_min) / col_range
-    for j, col in enumerate(all_cols):
-        if col in invert_cols:
+    for j, inv in enumerate(invert_flags):
+        if inv:
             mat_norm[:, j] = 1.0 - mat_norm[:, j]
 
-    fig, ax = plt.subplots(figsize=(max(14, len(all_cols) * 0.9), 8))
-    im = ax.imshow(mat_norm, aspect='auto', cmap='RdYlGn')
+    # Draw template separators
+    n_rows = len(labels)
+    fig_h = max(10, n_rows * 0.35)
+    fig, ax = plt.subplots(figsize=(max(12, len(all_cols) * 1.2), fig_h))
+    im = ax.imshow(mat_norm, aspect='auto', cmap='RdYlGn', vmin=0, vmax=1)
 
     ax.set_xticks(range(len(all_cols)))
-    col_labels = [c.replace('_', '\n').replace('chromophore\n', 'chrom\n')
-                  for c in all_cols]
-    ax.set_xticklabels(col_labels, rotation=45, ha='right', fontsize=7)
-    ax.set_yticks(range(len(labels)))
-    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xticklabels(col_labels, fontsize=8, ha='center')
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels(labels, fontsize=7)
 
-    # Annotate with actual values
+    # Annotate cells with values
+    for i in range(n_rows):
+        for j in range(len(all_cols)):
+            val = mat[i, j]
+            if np.isnan(val):
+                continue
+            nv = mat_norm[i, j]
+            text_color = 'white' if nv < 0.25 or nv > 0.85 else 'black'
+            fmt = '.0f' if abs(val) > 10 else '.2f' if abs(val) > 1 else '.3f'
+            ax.text(j, i, f'{val:{fmt}}', ha='center', va='center',
+                    fontsize=5.5, color=text_color)
+
+    # Draw horizontal lines between templates
+    prev_tpl = None
+    for i, (_, row) in enumerate(top_per_tpl.iterrows()):
+        tpl = row.get('template', '')
+        if prev_tpl is not None and tpl != prev_tpl:
+            ax.axhline(i - 0.5, color='black', linewidth=1.5)
+        prev_tpl = tpl
+
+    # Mark Pareto and selected designs
+    pareto_ids = set(df_pareto.get('global_id', pd.Series())) if not df_pareto.empty else set()
+    selected_ids = set(df_selected.get('global_id', pd.Series())) if not df_selected.empty else set()
+    for i, (_, row) in enumerate(top_per_tpl.iterrows()):
+        gid = row.get('global_id', '')
+        markers = []
+        if gid in pareto_ids:
+            markers.append('P')
+        if gid in selected_ids:
+            markers.append('*')
+        if markers:
+            ax.text(-0.7, i, ''.join(markers), ha='center', va='center',
+                    fontsize=7, fontweight='bold',
+                    color='red' if 'P' in markers else 'blue')
+
+    ax.set_title('Top 10 Per Template (sorted by fitness weight, green=better)\n'
+                 'P=Pareto  *=Selected', fontsize=11)
+    plt.colorbar(im, ax=ax, label='Normalized (1=best)', shrink=0.5)
+    plt.tight_layout()
+    plt.savefig(output_dir / "07_top10_per_template_heatmap.png",
+                dpi=300, bbox_inches="tight")
+    plt.close()
+
+    top_per_tpl[['global_id', 'template', 'seq_id'] + all_cols].to_csv(
+        csv_dir / "07_top10_per_template_heatmap_data.csv", index=False)
+    print("  07_top10_per_template_heatmap.png")
+
+
+def _plot_top50_global_heatmap(df_all, df_selected, df_pareto,
+                                output_dir, csv_dir):
+    """Heatmap of top 50 designs globally by fitness score."""
+    if "fitness_score" not in df_all.columns:
+        return
+
+    top50 = df_all.nlargest(50, "fitness_score")
+
+    chrom_col = ("holo_chromophore_plddt" if "holo_chromophore_plddt" in top50.columns
+                 else "chromophore_holo_plddt")
+    metrics_ordered = [
+        ('fitness_score', 'Fitness\nScore', False),
+        (chrom_col, 'Chrom\npLDDT\n(25%)', False),
+        ('holo_iptm', 'iPTM\n(25%)', False),
+        ('global_rmsd', 'RMSD\n(15%)', False),
+        ('holo_ptm', 'pTM\n(15%)', False),
+        ('apo_plddt_vs_template', 'Apo pLDDT\nvs Tpl\n(10%)', True),
+        ('mean_plddt_diff_sd', 'pLDDT Diff\nSD (5%)', True),
+        ('chromophore_plddt_diff', 'Chrom\nDiff (5%)', False),
+        ('holo_fraction_disordered', 'Holo\nDisorder', True),
+        ('apo_fraction_disordered', 'Apo\nDisorder', True),
+    ]
+    available = [(c, l, inv) for c, l, inv in metrics_ordered
+                 if c in top50.columns and top50[c].notna().any()]
+    if len(available) < 3:
+        return
+
+    all_cols = [c for c, _, _ in available]
+    col_labels = [l for _, l, _ in available]
+    invert_flags = [inv for _, _, inv in available]
+
+    labels = []
+    for i, (_, row) in enumerate(top50.iterrows()):
+        tpl = str(row.get('template', '')).replace('output_G4FP_', '').replace('G4FP_', '')
+        sid = int(row['seq_id'])
+        labels.append(f"#{i+1} d{sid:03d} {tpl}")
+
+    mat = top50[all_cols].values.astype(float)
+
+    # Normalize across all designs for fair color
+    col_min = np.array([df_all[c].min() for c in all_cols])
+    col_max = np.array([df_all[c].max() for c in all_cols])
+    col_range = col_max - col_min
+    col_range[col_range == 0] = 1
+    mat_norm = (mat - col_min) / col_range
+    for j, inv in enumerate(invert_flags):
+        if inv:
+            mat_norm[:, j] = 1.0 - mat_norm[:, j]
+
+    fig, ax = plt.subplots(figsize=(max(12, len(all_cols) * 1.2), 18))
+    im = ax.imshow(mat_norm, aspect='auto', cmap='RdYlGn', vmin=0, vmax=1)
+
+    ax.set_xticks(range(len(all_cols)))
+    ax.set_xticklabels(col_labels, fontsize=8, ha='center')
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=7)
+
     for i in range(len(labels)):
         for j in range(len(all_cols)):
             val = mat[i, j]
             if np.isnan(val):
                 continue
-            text_color = 'white' if mat_norm[i, j] < 0.3 or mat_norm[i, j] > 0.85 else 'black'
+            nv = mat_norm[i, j]
+            text_color = 'white' if nv < 0.25 or nv > 0.85 else 'black'
             fmt = '.0f' if abs(val) > 10 else '.2f' if abs(val) > 1 else '.3f'
             ax.text(j, i, f'{val:{fmt}}', ha='center', va='center',
-                    fontsize=6, color=text_color)
+                    fontsize=5.5, color=text_color)
 
-    # Mark Pareto-optimal designs
-    if not df_pareto.empty:
-        pareto_ids = set(df_pareto.get('global_id', pd.Series()))
-        for i, (_, row) in enumerate(top20.iterrows()):
-            gid = row.get('global_id', '')
-            if gid in pareto_ids:
-                ax.text(-0.7, i, 'P', ha='center', va='center',
-                        fontsize=9, fontweight='bold', color='red')
+    # Mark Pareto designs
+    pareto_ids = set(df_pareto.get('global_id', pd.Series())) if not df_pareto.empty else set()
+    for i, (_, row) in enumerate(top50.iterrows()):
+        gid = row.get('global_id', '')
+        if gid in pareto_ids:
+            ax.text(-0.7, i, 'P', ha='center', va='center',
+                    fontsize=7, fontweight='bold', color='red')
 
-    ax.set_title('Top 20 Candidates: All Metrics (green=better)')
-    plt.colorbar(im, ax=ax, label='Normalized score (1=best)', shrink=0.6)
+    ax.set_title('Top 50 Global by Fitness Score (sorted by weight, green=better)\n'
+                 'P=Pareto', fontsize=11)
+    plt.colorbar(im, ax=ax, label='Normalized (1=best)', shrink=0.4)
     plt.tight_layout()
-    plt.savefig(output_dir / "07_top20_heatmap.png", dpi=300, bbox_inches="tight")
+    plt.savefig(output_dir / "07_top50_global_heatmap.png",
+                dpi=300, bbox_inches="tight")
     plt.close()
 
-    top20[['global_id', 'final_rank', 'template', 'seq_id'] + all_cols].to_csv(
-        csv_dir / "07_top20_heatmap_data.csv", index=False)
-    print("  07_top20_heatmap.png")
+    top50[['global_id', 'template', 'seq_id'] + all_cols].to_csv(
+        csv_dir / "07_top50_global_heatmap_data.csv", index=False)
+    print("  07_top50_global_heatmap.png")
 
 
 def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
@@ -662,51 +847,175 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
     csv_dir = output_dir / "plot_data_csvs"
     csv_dir.mkdir(exist_ok=True)
 
-    # ---- 1. Selection summary ----
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    # ---- 1. Selection summary (6-panel) ----
+    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
 
-    axes[0, 0].hist(df_all["fitness_score"].dropna(), bins=40,
-                     alpha=0.5, label="All designs", color="gray")
-    axes[0, 0].hist(df_selected["fitness_score"].dropna(), bins=40,
-                     alpha=0.7, label="Selected", color="steelblue")
-    axes[0, 0].set_xlabel("Fitness Score")
-    axes[0, 0].set_ylabel("Count")
-    axes[0, 0].set_title("Fitness Score Distribution")
-    axes[0, 0].legend()
+    # (a) Fitness score distribution: all vs selected vs pareto
+    ax = axes[0, 0]
+    ax.hist(df_all["fitness_score"].dropna(), bins=40,
+            alpha=0.35, label="All", color="gray")
+    ax.hist(df_selected["fitness_score"].dropna(), bins=40,
+            alpha=0.6, label="Selected", color="steelblue")
+    if not df_pareto.empty and "fitness_score" in df_pareto.columns:
+        ax.hist(df_pareto["fitness_score"].dropna(), bins=20,
+                alpha=0.7, label="Pareto", color="red")
+    ax.set_xlabel("Fitness Score")
+    ax.set_ylabel("Count")
+    ax.set_title("Fitness Score Distribution")
+    ax.legend(fontsize=8)
 
-    template_counts = df_selected["template"].value_counts()
-    axes[0, 1].barh(range(len(template_counts)), template_counts.values,
-                     color="steelblue")
-    axes[0, 1].set_yticks(range(len(template_counts)))
-    labels = [t.replace("output_G4FP_", "") for t in template_counts.index]
-    axes[0, 1].set_yticklabels(labels, fontsize=8)
-    axes[0, 1].set_xlabel("Selected Designs")
-    axes[0, 1].set_title("Selected Designs per Template")
+    # (b) Fitness score violin per template
+    ax = axes[0, 1]
+    if "template" in df_all.columns:
+        templates = sorted(df_all["template"].unique())
+        tpl_short = [t.replace("output_G4FP_", "").replace("G4FP_", "")
+                     for t in templates]
+        data_all = [df_all[df_all["template"] == t]["fitness_score"].dropna().values
+                    for t in templates]
+        data_sel = [df_selected[df_selected["template"] == t]["fitness_score"].dropna().values
+                    for t in templates]
+        positions = np.arange(len(templates))
+        # All designs (gray violins)
+        parts = ax.violinplot([d for d in data_all if len(d) > 1],
+                              positions=[p for p, d in zip(positions, data_all)
+                                         if len(d) > 1],
+                              showmedians=True, widths=0.7)
+        for pc in parts.get('bodies', []):
+            pc.set_facecolor('lightgray')
+            pc.set_alpha(0.5)
+        # Selected (colored box on top)
+        sel_data = [(p, d) for p, d in zip(positions, data_sel) if len(d) > 0]
+        if sel_data:
+            bp = ax.boxplot([d for _, d in sel_data],
+                            positions=[p for p, _ in sel_data],
+                            widths=0.3, patch_artist=True,
+                            showfliers=False, zorder=3)
+            for patch in bp['boxes']:
+                patch.set_facecolor('steelblue')
+                patch.set_alpha(0.7)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(tpl_short, rotation=45, ha='right', fontsize=7)
+        ax.set_ylabel("Fitness Score")
+        ax.set_title("Fitness by Template (gray=all, blue=selected)")
 
-    if "mean_plddt_diff" in df_selected.columns:
-        axes[1, 0].hist(df_selected["mean_plddt_diff"].dropna(), bins=30,
-                         alpha=0.7, color="green")
-        axes[1, 0].set_xlabel("pLDDT Difference (Holo - Apo)")
-        axes[1, 0].set_ylabel("Count")
-        axes[1, 0].set_title("Selected: pLDDT Switch Magnitude")
-        axes[1, 0].axvline(0, color="red", linestyle="--", alpha=0.5)
-        # SD shading if available
-        if "mean_plddt_diff_sd" in df_selected.columns:
-            med_sd = df_selected["mean_plddt_diff_sd"].median()
-            axes[1, 0].axvline(0 + med_sd, color="orange", linestyle=":",
-                                alpha=0.4, label=f"median SD={med_sd:.1f}")
-            axes[1, 0].axvline(0 - med_sd, color="orange", linestyle=":",
-                                alpha=0.4)
-            axes[1, 0].legend(fontsize=8)
+    # (c) Score component radar: selected median vs all median
+    ax = axes[0, 2]
+    comp_cols = [c for c in df_all.columns if c.startswith("score_component_")]
+    if len(comp_cols) >= 3:
+        comp_labels = [c.replace("score_component_", "").replace("_", "\n")
+                       for c in comp_cols]
+        all_medians = [df_all[c].median() for c in comp_cols]
+        sel_medians = [df_selected[c].median() for c in comp_cols]
+        n_comp = len(comp_cols)
+        angles = np.linspace(0, 2 * np.pi, n_comp, endpoint=False).tolist()
+        angles += angles[:1]
+        all_medians += all_medians[:1]
+        sel_medians += sel_medians[:1]
 
-    if "cluster" in df_selected.columns:
-        cluster_sizes = df_selected["cluster"].value_counts().sort_index()
-        axes[1, 1].bar(range(len(cluster_sizes)), cluster_sizes.values,
-                        alpha=0.7, color="purple")
-        axes[1, 1].set_xlabel("Cluster ID")
-        axes[1, 1].set_ylabel("Designs Selected")
-        axes[1, 1].set_title("Diversity: Designs per Sequence Cluster")
+        ax.set_visible(False)
+        ax_r = fig.add_subplot(2, 3, 3, polar=True)
+        ax_r.plot(angles, all_medians, 'o-', color='gray', alpha=0.6,
+                  label='All median', linewidth=1.5)
+        ax_r.fill(angles, all_medians, alpha=0.1, color='gray')
+        ax_r.plot(angles, sel_medians, 'o-', color='steelblue', alpha=0.8,
+                  label='Selected median', linewidth=2)
+        ax_r.fill(angles, sel_medians, alpha=0.15, color='steelblue')
+        ax_r.set_xticks(angles[:-1])
+        ax_r.set_xticklabels(comp_labels, fontsize=7)
+        ax_r.set_ylim(0, 1)
+        ax_r.set_title("Score Components\n(0-1 normalized)", fontsize=9, y=1.08)
+        ax_r.legend(fontsize=7, loc='lower right')
+    else:
+        ax.text(0.5, 0.5, "Score components\nnot available",
+                transform=ax.transAxes, ha='center', va='center')
 
+    # (d) iPTM vs Chromophore pLDDT scatter colored by template
+    ax = axes[1, 0]
+    chrom_c = ("holo_chromophore_plddt" if "holo_chromophore_plddt" in df_all.columns
+               else "chromophore_holo_plddt")
+    if "holo_iptm" in df_all.columns and chrom_c in df_all.columns:
+        cmap_t = plt.cm.get_cmap('tab10', max(10, len(templates)))
+        for i, t in enumerate(templates):
+            mask_all = df_all["template"] == t
+            mask_sel = df_selected["template"] == t
+            short = t.replace("output_G4FP_", "").replace("G4FP_", "")
+            ax.scatter(df_all.loc[mask_all, "holo_iptm"],
+                       df_all.loc[mask_all, chrom_c],
+                       alpha=0.15, s=10, color=cmap_t(i))
+            ax.scatter(df_selected.loc[mask_sel, "holo_iptm"],
+                       df_selected.loc[mask_sel, chrom_c],
+                       alpha=0.7, s=25, color=cmap_t(i),
+                       edgecolors='black', linewidths=0.3, label=short)
+        ax.set_xlabel("Holo iPTM (Interface)")
+        ax.set_ylabel("Holo Chromophore pLDDT")
+        ax.set_title("Key Metrics by Template (large=selected)")
+        ax.legend(fontsize=6, ncol=2, loc='lower right')
+    else:
+        ax.text(0.5, 0.5, "iPTM / chromophore data\nnot available",
+                transform=ax.transAxes, ha='center', va='center')
+
+    # (e) Rank vs fitness with template coloring (top 50)
+    ax = axes[1, 1]
+    if "final_rank" in df_selected.columns:
+        top50 = df_selected.nsmallest(50, "final_rank")
+        cmap_t = plt.cm.get_cmap('tab10', max(10, len(templates)))
+        tpl_to_i = {t: i for i, t in enumerate(templates)}
+        colors = [cmap_t(tpl_to_i.get(t, 0)) for t in top50["template"]]
+        ax.barh(top50["final_rank"], top50["fitness_score"],
+                color=colors, edgecolor='white', linewidth=0.3)
+        ax.set_ylabel("Rank")
+        ax.set_xlabel("Fitness Score")
+        ax.set_title("Top 50 Candidates by Rank")
+        ax.invert_yaxis()
+        # Template legend
+        for t in templates:
+            short = t.replace("output_G4FP_", "").replace("G4FP_", "")
+            if t in top50["template"].values:
+                ax.barh([], [], color=cmap_t(tpl_to_i[t]), label=short)
+        ax.legend(fontsize=6, loc='lower right', ncol=2)
+
+    # (f) Key metric distributions: selected boxplots
+    ax = axes[1, 2]
+    box_metrics = [
+        ("holo_iptm", "iPTM"),
+        (chrom_c, "Chrom\npLDDT"),
+        ("global_rmsd", "RMSD"),
+        ("holo_ptm", "pTM"),
+        ("mean_plddt_diff", "pLDDT\ndiff"),
+    ]
+    box_data = [(l, df_selected[c].dropna().values)
+                for c, l in box_metrics
+                if c in df_selected.columns and df_selected[c].notna().any()]
+    if box_data:
+        # Normalize each to 0-1 for comparison
+        norm_data = []
+        raw_ranges = []
+        for label, vals in box_data:
+            vmin, vmax = vals.min(), vals.max()
+            raw_ranges.append((vmin, vmax))
+            if vmax > vmin:
+                norm_data.append((label, (vals - vmin) / (vmax - vmin)))
+            else:
+                norm_data.append((label, np.full_like(vals, 0.5)))
+        bp = ax.boxplot([v for _, v in norm_data], patch_artist=True,
+                        showfliers=True, flierprops=dict(markersize=2))
+        colors_box = ['#E07B39', '#D62728', '#2CA02C', '#FF7F0E', '#9467BD']
+        for i, patch in enumerate(bp['boxes']):
+            patch.set_facecolor(colors_box[i % len(colors_box)])
+            patch.set_alpha(0.7)
+        ax.set_xticklabels([l for l, _ in norm_data], fontsize=8)
+        # Add raw range as annotation
+        for i, ((vmin, vmax), (label, _)) in enumerate(zip(raw_ranges, norm_data)):
+            ax.text(i + 1, -0.08, f"[{vmin:.1f}-{vmax:.1f}]",
+                    ha='center', fontsize=6, color='gray',
+                    transform=ax.get_xaxis_transform())
+        ax.set_ylabel("Normalized Value")
+        ax.set_title("Selected: Key Metric Distributions")
+        ax.set_ylim(-0.05, 1.15)
+
+    plt.suptitle(f"Selection Summary: {len(df_selected)} designs from "
+                 f"{df_selected['template'].nunique()} templates",
+                 fontsize=13, y=1.01)
     plt.tight_layout()
     plt.savefig(output_dir / "07_selection_summary.png", dpi=300,
                 bbox_inches="tight")
@@ -874,55 +1183,81 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.close()
         print("  07_sd_overview.png")
 
-    # ---- 5. Pareto frontier plot ----
+    # ---- 5. Pareto frontier plots ----
     if not df_pareto.empty:
-        obj1 = "mean_plddt_diff"
-        obj2 = "holo_ptm"
+        chrom_col = ("holo_chromophore_plddt" if "holo_chromophore_plddt" in df_all.columns
+                     else "chromophore_holo_plddt")
+        plot_pairs = [
+            ("holo_iptm", chrom_col,
+             "Holo iPTM (Interface)", "Holo Chromophore pLDDT",
+             "Pareto: Interface Quality vs Chromophore Stability"),
+            ("holo_iptm", "global_rmsd",
+             "Holo iPTM (Interface)", "Global RMSD (A)",
+             "Pareto: Interface Quality vs Structural Change"),
+        ]
 
-        if obj1 in df_all.columns and obj2 in df_all.columns:
-            fig, ax = plt.subplots(figsize=(10, 8))
+        fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+        for ax_idx, (obj1, obj2, xlabel, ylabel, title) in enumerate(plot_pairs):
+            ax = axes[ax_idx]
+            if obj1 not in df_all.columns or obj2 not in df_all.columns:
+                ax.set_visible(False)
+                continue
 
-            # Color all by SD if available
-            if "mean_plddt_diff_sd" in df_all.columns:
-                sc = ax.scatter(
-                    df_all[obj1], df_all[obj2],
-                    c=df_all["mean_plddt_diff_sd"].fillna(0),
-                    cmap="plasma", alpha=0.3, s=15, edgecolors="none",
-                    vmin=0,
-                    vmax=max(
-                        df_all["mean_plddt_diff_sd"].quantile(0.95), 1))
-                plt.colorbar(sc, ax=ax, label="pLDDT Diff SD")
-            else:
-                ax.scatter(df_all[obj1], df_all[obj2],
-                           alpha=0.15, s=15, color="gray", label="All")
+            sc = ax.scatter(df_all[obj1], df_all[obj2],
+                           c=df_all["fitness_score"], cmap="viridis",
+                           alpha=0.3, s=15, edgecolors="none")
+            plt.colorbar(sc, ax=ax, label="Fitness Score")
 
-            ax.scatter(df_pareto[obj1], df_pareto[obj2],
-                       c="red", s=50, marker="D", alpha=0.7,
-                       label="Pareto optimal")
-            ax.scatter(df_selected[obj1], df_selected[obj2],
-                       alpha=0.4, s=20, color="steelblue",
-                       edgecolors="black", linewidths=0.2,
-                       label="Selected")
+            # Draw Pareto frontier as a connected line (step envelope)
+            if obj1 in df_pareto.columns and obj2 in df_pareto.columns:
+                pf = df_pareto[[obj1, obj2]].dropna().copy()
+                # Sort by obj1 ascending, then trace the upper-right envelope
+                pf = pf.sort_values(obj1)
+                # Build step-line: at each x, the frontier y is the max y
+                # among Pareto points with x >= current x
+                xs = pf[obj1].values
+                ys = pf[obj2].values
+                # Running max from right gives the envelope
+                envelope_y = np.maximum.accumulate(ys[::-1])[::-1]
+                ax.step(xs, envelope_y, where='post', color='red',
+                        linewidth=2, alpha=0.8, label="Pareto frontier")
+                ax.scatter(xs, ys, c="red", s=50, marker="D",
+                           alpha=0.7, zorder=5)
 
-            ax.set_xlabel("pLDDT Difference (Holo - Apo)")
-            ax.set_ylabel("Holo pTM")
-            ax.set_title("Pareto Frontier: pLDDT Switch vs "
-                          "Holo Fold Quality")
-            ax.legend()
-            plt.tight_layout()
-            plt.savefig(output_dir / "07_pareto_plot.png", dpi=300,
-                        bbox_inches="tight")
-            plt.close()
-            print("  07_pareto_plot.png")
+            # Highlight overlap (selected) designs
+            if not df_selected.empty and obj1 in df_selected.columns:
+                ax.scatter(df_selected[obj1], df_selected[obj2],
+                           alpha=0.7, s=35, color="steelblue",
+                           edgecolors="black", linewidths=0.5,
+                           label=f"Selected ({len(df_selected)})", zorder=4)
+
+            _plot_template_references(ax, template_df, obj1, obj2)
+
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_title(title)
+            ax.legend(fontsize=7)
+
+        plt.tight_layout()
+        plt.savefig(output_dir / "07_pareto_plot.png", dpi=300,
+                    bbox_inches="tight")
+        plt.close()
+        print("  07_pareto_plot.png")
 
     # ---- 6. Fitness component histograms ----
+    # Match the new fitness score components
+    chrom_col = ("holo_chromophore_plddt" if "holo_chromophore_plddt" in df_all.columns
+                 else "chromophore_holo_plddt")
     components = [
-        ("mean_plddt_diff", "pLDDT Diff (Holo - Apo)", "#2CA02C"),
-        ("holo_ptm", "Holo pTM", "#E07B39"),
-        ("apo_mean_plddt", "Apo Mean pLDDT (lower=better)", "#4878CF"),
-        ("chromophore_plddt_diff", "Chromophore pLDDT Diff", "#9467BD"),
-        ("global_rmsd", "Global RMSD (A)", "#D62728"),
-        ("mean_plddt_diff_sd", "pLDDT Diff SD (lower=better)", "#7B68AE"),
+        (chrom_col, "Holo Chromophore pLDDT (25%)", "#E07B39"),
+        ("holo_iptm", "Holo iPTM - Interface (25%)", "#D62728"),
+        ("global_rmsd", "Global RMSD (15%)", "#2CA02C"),
+        ("holo_ptm", "Holo pTM (15%)", "#FF7F0E"),
+        ("apo_plddt_vs_template", "Apo pLDDT vs Template (10%)", "#4878CF"),
+        ("chromophore_plddt_diff", "Chromophore pLDDT Diff (5%)", "#9467BD"),
+        ("mean_plddt_diff_sd", "pLDDT Diff SD (5%, lower=better)", "#7B68AE"),
+        ("holo_fraction_disordered", "Holo Fraction Disordered", "#8C564B"),
+        ("apo_fraction_disordered", "Apo Fraction Disordered", "#17BECF"),
     ]
     avail_comp = [(c, l, clr) for c, l, clr in components if c in df_all.columns]
     if avail_comp:
@@ -965,8 +1300,13 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.close()
         print("  07_fitness_components.png")
 
-    # ---- 7. Top 20 heatmap ----
-    _plot_top20_heatmap(df_all, df_selected, df_pareto, output_dir, csv_dir)
+    # ---- 7. Top 10 per template heatmap ----
+    _plot_top10_per_template_heatmap(df_all, df_selected, df_pareto,
+                                     output_dir, csv_dir)
+
+    # ---- 8. Top 50 global heatmap ----
+    _plot_top50_global_heatmap(df_all, df_selected, df_pareto,
+                               output_dir, csv_dir)
 
     # ---- Export CSVs ----
     df_all.to_csv(csv_dir / "07_all_designs_scored.csv", index=False)
@@ -988,26 +1328,22 @@ def main():
 Selection strategy:
   1. Load 06_ligand_state_comparison_results.csv from all output directories
   2. Compute fitness score (weighted components + confidence penalty for high SD)
-  3. Apply hard filters (holo must fold, apo should be disordered)
-  4. Find Pareto-optimal designs across multiple objectives
-  5. Diversity-weighted selection to avoid redundant sequences
-  6. Export top N candidates for experimental testing
+  3. Apply hard filters (holo must fold)
+  4. Find Pareto-optimal designs across iPTM, chromophore pLDDT, RMSD
+  5. Take top N by fitness score
+  6. Output the OVERLAP of Pareto-optimal AND top-N fitness
         """
     )
     parser.add_argument("--output-dir", type=str,
                         help="Analyze a single output directory instead of all")
-    parser.add_argument("--n-select", type=int, default=500,
-                        help="Number of final candidates (default: 500)")
     parser.add_argument("--min-holo-plddt", type=float, default=70.0,
                         help="Minimum holo state pLDDT (default: 70)")
     parser.add_argument("--min-holo-ptm", type=float, default=0.5,
                         help="Minimum holo state pTM (default: 0.5)")
-    parser.add_argument("--max-apo-plddt", type=float, default=60.0,
-                        help="Maximum apo state pLDDT (default: 60)")
-    parser.add_argument("--no-diversity", action="store_true",
-                        help="Skip diversity-weighted selection")
-    parser.add_argument("--pareto-only", action="store_true",
-                        help="Only output Pareto-optimal designs")
+    parser.add_argument("--min-holo-iptm", type=float, default=0.3,
+                        help="Minimum holo iPTM (default: 0.3)")
+    parser.add_argument("--max-apo-plddt", type=float, default=None,
+                        help="Maximum apo pLDDT (default: None, use relative)")
 
     args = parser.parse_args()
     base_dir = Path(__file__).resolve().parent
@@ -1035,6 +1371,18 @@ Selection strategy:
         if len(sd_cols) > 8:
             print(f"    ... and {len(sd_cols) - 8} more")
 
+    # Load template references early (needed for relative apo pLDDT)
+    print("\nLoading template references...")
+    template_df = load_template_metrics(base_dir)
+
+    # Compute relative apo pLDDT (vs each design's parent template)
+    df = compute_relative_apo_plddt(df, template_df)
+    if "apo_plddt_vs_template" in df.columns:
+        valid = df["apo_plddt_vs_template"].dropna()
+        if len(valid) > 0:
+            print(f"  Relative apo pLDDT: {valid.min():.1f} to {valid.max():.1f} "
+                  f"(median={valid.median():.1f})")
+
     # 2. Compute fitness score (includes confidence penalty)
     print("\nComputing fitness scores...")
     df = compute_fitness_score(df)
@@ -1045,70 +1393,92 @@ Selection strategy:
 
     # 3. Pareto frontier
     print("\nFinding Pareto-optimal designs...")
+    # 3 objectives for meaningful Pareto frontier (more -> all non-dominated)
+    chrom_pareto_col = ("holo_chromophore_plddt" if "holo_chromophore_plddt" in df.columns
+                        else "chromophore_holo_plddt")
     pareto_objectives = [
-        ("mean_plddt_diff", True),
-        ("holo_ptm", True),
-        ("apo_mean_plddt", False),
-        ("chromophore_plddt_diff", True),
-        ("global_rmsd", True),
+        ("holo_iptm", True),             # interface quality
+        (chrom_pareto_col, True),         # chromophore stability
+        ("global_rmsd", True),            # structural change
     ]
     df_pareto = pareto_frontier(df, pareto_objectives)
 
-    if args.pareto_only:
-        df_selected = df_pareto.sort_values("fitness_score", ascending=False)
-    else:
-        # 4. Hard filters
-        df_filtered = apply_hard_filters(
-            df,
-            min_holo_plddt=args.min_holo_plddt,
-            min_holo_ptm=args.min_holo_ptm,
-            max_apo_plddt=args.max_apo_plddt,
-        )
+    # 4. Hard filters
+    df_filtered = apply_hard_filters(
+        df,
+        min_holo_plddt=args.min_holo_plddt,
+        min_holo_ptm=args.min_holo_ptm,
+        min_holo_iptm=args.min_holo_iptm,
+        max_apo_plddt=args.max_apo_plddt,
+    )
 
-        # 5. Diversity-weighted selection
-        if args.no_diversity or "sequence" not in df_filtered.columns:
-            df_selected = df_filtered.nlargest(
-                args.n_select, "fitness_score").copy()
-            print(f"\nSelected top {len(df_selected)} by fitness score")
-        else:
-            print(f"\nDiversity-weighted selection (target: {args.n_select})...")
-            df_selected = diversity_weighted_selection(
-                df_filtered, n_select=args.n_select)
+    # 5. Build two selected pools
+    pareto_ids = set(df_pareto["global_id"])
 
-    # 6. Final ranking
-    df_selected = df_selected.sort_values(
+    # Pool A: Top 10 per template
+    top10_frames = []
+    for tpl in sorted(df_filtered["template"].unique()):
+        tpl_df = df_filtered[df_filtered["template"] == tpl].nlargest(
+            10, "fitness_score")
+        top10_frames.append(tpl_df)
+    df_top10_per_tpl = pd.concat(top10_frames).sort_values(
         "fitness_score", ascending=False).reset_index(drop=True)
+    df_top10_per_tpl["rank_in_pool"] = range(1, len(df_top10_per_tpl) + 1)
+
+    # Pool B: Top 50 global by fitness
+    df_top50_global = df_filtered.nlargest(50, "fitness_score").copy()
+    df_top50_global = df_top50_global.reset_index(drop=True)
+    df_top50_global["rank_in_pool"] = range(1, len(df_top50_global) + 1)
+
+    # Combined selected = union of both pools (for summary plots)
+    combined_ids = set(df_top10_per_tpl["global_id"]) | set(df_top50_global["global_id"])
+    df_selected = df_filtered[df_filtered["global_id"].isin(combined_ids)].copy()
+    df_selected = df_selected.sort_values("fitness_score", ascending=False).reset_index(drop=True)
     df_selected["final_rank"] = range(1, len(df_selected) + 1)
 
-    # 7. Save outputs
+    # Tag designs in full df
+    df["in_pareto"] = df["global_id"].isin(pareto_ids)
+    df["in_top10_per_tpl"] = df["global_id"].isin(set(df_top10_per_tpl["global_id"]))
+    df["in_top50_global"] = df["global_id"].isin(set(df_top50_global["global_id"]))
+
+    n_overlap = len(set(df_top10_per_tpl["global_id"]) & set(df_top50_global["global_id"]))
+    print(f"\n  Pool A (top 10/template): {len(df_top10_per_tpl)} designs "
+          f"from {df_top10_per_tpl['template'].nunique()} templates")
+    print(f"  Pool B (top 50 global):   {len(df_top50_global)} designs "
+          f"from {df_top50_global['template'].nunique()} templates")
+    print(f"  Overlap A & B:            {n_overlap}")
+    print(f"  Union (total selected):   {len(df_selected)}")
+    print(f"  Pareto-optimal:           {len(df_pareto)}")
+
+    # 6. Save outputs
     results_dir.mkdir(exist_ok=True, parents=True)
 
-    export_cols = [c for c in df_selected.columns if "array" not in c]
-    df_selected[export_cols].to_csv(
-        results_dir / "07_final_candidates.csv", index=False)
+    def _save_pool(pool_df, name, results_dir):
+        """Save CSV and FASTA for a selection pool."""
+        export_cols = [c for c in pool_df.columns if "array" not in c]
+        pool_df[export_cols].to_csv(results_dir / f"{name}.csv", index=False)
+        if "sequence" in pool_df.columns:
+            with open(results_dir / f"{name}.fa", "w") as f:
+                for _, row in pool_df.iterrows():
+                    rank = int(row.get('rank_in_pool', row.get('final_rank', 0)))
+                    header = (f">{row['global_id']} "
+                              f"rank={rank} "
+                              f"fitness={row['fitness_score']:.4f} "
+                              f"template={row['template']}")
+                    if pd.notna(row.get("mean_plddt_diff")):
+                        header += f" delta_plddt={row['mean_plddt_diff']:.1f}"
+                    f.write(f"{header}\n{row['sequence']}\n")
+        print(f"  {name}.csv ({len(pool_df)} designs)")
 
-    if "sequence" in df_selected.columns:
-        with open(results_dir / "07_final_candidates.fa", "w") as f:
-            for _, row in df_selected.iterrows():
-                header = (f">{row['global_id']} "
-                          f"rank={row['final_rank']} "
-                          f"fitness={row['fitness_score']:.4f} "
-                          f"template={row['template']}")
-                if "mean_plddt_diff" in row:
-                    header += f" delta_plddt={row['mean_plddt_diff']:.1f}"
-                if "mean_plddt_diff_sd" in row and pd.notna(
-                        row.get("mean_plddt_diff_sd")):
-                    header += f" sd={row['mean_plddt_diff_sd']:.1f}"
-                f.write(f"{header}\n{row['sequence']}\n")
+    _save_pool(df_top10_per_tpl, "07_top10_per_template", results_dir)
+    _save_pool(df_top50_global, "07_top50_global", results_dir)
+    _save_pool(df_selected, "07_final_candidates", results_dir)
 
     if not df_pareto.empty:
         pareto_export = [c for c in df_pareto.columns if "array" not in c]
         df_pareto[pareto_export].to_csv(
             results_dir / "07_pareto_frontier.csv", index=False)
-
-    # Load template references
-    print("\nLoading template references...")
-    template_df = load_template_metrics(base_dir)
+        print(f"  07_pareto_frontier.csv ({len(df_pareto)} designs)")
 
     # Visualizations
     print("\nGenerating plots...")
@@ -1120,29 +1490,18 @@ Selection strategy:
     print("=" * 80)
     print(f"  Total designs analyzed:  {len(df)}")
     print(f"  Pareto-optimal designs:  {len(df_pareto)}")
-    print(f"  Final selected designs:  {len(df_selected)}")
+    print(f"  Top 10 per template:     {len(df_top10_per_tpl)}")
+    print(f"  Top 50 global:           {len(df_top50_global)}")
+    print(f"  Combined selected:       {len(df_selected)}")
     print(f"  Templates represented:   {df_selected['template'].nunique()}")
-    print(f"\n  Score range (selected):  "
-          f"{df_selected['fitness_score'].min():.4f} - "
-          f"{df_selected['fitness_score'].max():.4f}")
-
-    if "mean_plddt_diff" in df_selected.columns:
-        print(f"  pLDDT diff range:        "
-              f"{df_selected['mean_plddt_diff'].min():.1f} - "
-              f"{df_selected['mean_plddt_diff'].max():.1f}")
-        if "mean_plddt_diff_sd" in df_selected.columns:
-            print(f"  pLDDT diff SD range:     "
-                  f"{df_selected['mean_plddt_diff_sd'].min():.1f} - "
-                  f"{df_selected['mean_plddt_diff_sd'].max():.1f}")
 
     print(f"\n  Output directory: {results_dir}/")
-    print(f"    07_final_candidates.csv    -- ranked candidates + SD")
-    print(f"    07_final_candidates.fa     -- FASTA sequences")
+    print(f"    07_top10_per_template.csv  -- top 10 per template + FASTA")
+    print(f"    07_top50_global.csv        -- top 50 by fitness + FASTA")
+    print(f"    07_final_candidates.csv    -- union of both pools")
     print(f"    07_pareto_frontier.csv     -- Pareto-optimal set")
     print(f"    07_selection_summary.png   -- overview plots")
-    print(f"    07_holo_vs_apo_scatter.png -- fitness-colored")
-    print(f"    07_holo_vs_apo_sd.png     -- SD-colored")
-    print(f"    07_sd_overview.png         -- SD distributions")
+    print(f"    07_top10_per_template_heatmap.png")
     print(f"\nNext step: python 08_export_for_synthesis.py")
 
 
