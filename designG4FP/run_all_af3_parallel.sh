@@ -43,7 +43,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ============================================================================
 GPU0=0
 GPU1=1
-MSA_PARALLEL=20         # Parallel MSA/data pipeline jobs (CPU only, ~80GB RAM each)
+MSA_PARALLEL=4          # Parallel MSA/data pipeline jobs (each uses ~4 CPU threads)
+MAX_CORES=16            # Total CPU cores to use
 RUN_MODE="both"          # bound, apo, both
 NODE1_ONLY=0
 NODE2_ONLY=0
@@ -82,6 +83,17 @@ done
 # ============================================================================
 source /programs/sbgrid.shrc 2>/dev/null
 export TRITON_PTXAS_PATH=/usr/local/cuda-12.4/bin/ptxas
+
+# Limit CPU threads to prevent oversubscription
+# MSA_PARALLEL jobs × THREADS_PER_JOB should not exceed MAX_CORES
+THREADS_PER_JOB=$((MAX_CORES / MSA_PARALLEL))
+[ "$THREADS_PER_JOB" -lt 1 ] && THREADS_PER_JOB=1
+export OMP_NUM_THREADS=$THREADS_PER_JOB
+export OPENBLAS_NUM_THREADS=$THREADS_PER_JOB
+export MKL_NUM_THREADS=$THREADS_PER_JOB
+export NUMEXPR_MAX_THREADS=$THREADS_PER_JOB
+export XLA_FLAGS="--xla_cpu_multi_thread_eigen=false"
+echo "CPU limits: $MAX_CORES cores total, $MSA_PARALLEL parallel jobs × $THREADS_PER_JOB threads each"
 
 # Create JAX compilation cache directory
 mkdir -p "$JAX_CACHE_DIR"
@@ -414,6 +426,13 @@ run_inference_batch() {
     fi
 
     export CUDA_VISIBLE_DEVICES=$gpu_id
+    # Limit CPU threads for inference (2 GPUs share MAX_CORES)
+    local inf_threads=$((MAX_CORES / 2))
+    [ "$inf_threads" -lt 1 ] && inf_threads=1
+    export OMP_NUM_THREADS=$inf_threads
+    export OPENBLAS_NUM_THREADS=$inf_threads
+    export MKL_NUM_THREADS=$inf_threads
+    export NUMEXPR_MAX_THREADS=$inf_threads
 
     /programs/x86_64-linux/system/sbgrid_bin/run_alphafold.py \
         --db_dir /mnt/alphafold3 \
