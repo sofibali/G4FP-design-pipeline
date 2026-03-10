@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-Build a PyMOL session (.pse) with the top-ranked G4FP designs.
+Build a PyMOL session (.pse) with the selected G4FP design candidates.
 
-Loads:
-  - Template PDB (input structure, white)
-  - Template AF3 holo + apo best models (if available)
-  - Top N designs: holo (warm colors) and apo (cool colors)
-  - Colors by pLDDT (B-factor spectrum)
+Loads all designs from 07_final_candidates.csv, colored by template
+using the same tab10 palette as the analysis plots. Chromophore (TYG)
+residues are shown as sticks, auto-detected per template.
 
 Usage:
     source /programs/sbgrid.shrc
     pymol -cq build_pymol_session.py
-    # or: pymol -cq build_pymol_session.py -- --top 10 --output top10.pse
+    # or: pymol -cq build_pymol_session.py -- --top 50 --output custom.pse
 """
 
 import sys
@@ -21,7 +19,7 @@ from pathlib import Path
 from collections import defaultdict
 
 # Parse args after "--"
-top_n = 10
+top_n = None  # None = load all candidates
 output_name = "07_results/07_top_designs.pse"
 args = sys.argv[1:]
 if "--" in sys.argv:
@@ -46,7 +44,6 @@ except ImportError:
 
 import csv
 
-# __file__ may not resolve correctly when run via pymol -cq; use cwd as fallback
 try:
     _script_path = Path(__file__).resolve()
     base_dir = _script_path.parent
@@ -55,7 +52,64 @@ try:
 except NameError:
     base_dir = Path.cwd()
 
-# ── Load top candidates ──
+# ── tab10 colors matching matplotlib plots ──
+# Sorted template names → tab10 index, same order as 07_aggregate_and_rank.py
+TEMPLATE_COLORS = {
+    "G4FP_des1_cro_mod0":   [0.1216, 0.4667, 0.7059],  # tab:blue
+    "G4FP_des1_cro_mod4":   [1.0000, 0.4980, 0.0549],  # tab:orange
+    "G4FP_r20_l1_cro_mod0": [0.1725, 0.6275, 0.1725],  # tab:green
+    "G4FP_r20_l2_cro_mod2": [0.8392, 0.1529, 0.1569],  # tab:red
+    "G4FP_r20_l2_cro_mod3": [0.5804, 0.4039, 0.7412],  # tab:purple
+    "G4FP_r28_l1_cro_mod2": [0.5490, 0.3373, 0.2941],  # tab:brown
+    "G4FP_r28_l2_cro_mod2": [0.8902, 0.4667, 0.7608],  # tab:pink
+    "G4FP_r28_l2_cro_mod3": [0.4980, 0.4980, 0.4980],  # tab:gray
+    "G4FP_r28_l3_cro_mod0": [0.7373, 0.7412, 0.1333],  # tab:olive
+    "G4FP_r28_l3_cro_mod2": [0.0902, 0.7451, 0.8118],  # tab:cyan
+}
+
+# ── Auto-detect chromophore TYG position per template ──
+
+
+def detect_chromophore_residues(output_dir):
+    """Find TYG tripeptide position in the protein sequence.
+
+    Returns 1-indexed (start, end) or None.
+    """
+    # Strategy 1: LigandMPNN reference FASTA
+    fa_dir = output_dir / "01_ligandmpnn" / "seqs"
+    if fa_dir.exists():
+        for fa in sorted(fa_dir.glob("*.fa")):
+            with open(fa) as f:
+                lines = f.readlines()
+            if len(lines) >= 2:
+                seq = lines[1].strip()
+                idx = seq.find("TYG")
+                if idx >= 0:
+                    return (idx + 1, idx + 3)  # 1-indexed
+            break
+
+    # Strategy 2: AF3 input JSON
+    import json
+    for sub in ["02_alphafold3_inputs_bound", "02_alphafold3_inputs_apo"]:
+        af3_dir = output_dir / sub
+        if not af3_dir.exists():
+            continue
+        for jf in sorted(af3_dir.glob("*.json")):
+            if jf.name.endswith('.bak'):
+                continue
+            try:
+                data = json.load(open(jf))
+                seq = data['sequences'][0]['protein']['sequence']
+                idx = seq.find("TYG")
+                if idx >= 0:
+                    return (idx + 1, idx + 3)
+            except Exception:
+                pass
+            break
+    return None
+
+
+# ── Load candidates ──
 candidates_csv = base_dir / "07_results" / "07_final_candidates.csv"
 if not candidates_csv.exists():
     print(f"ERROR: {candidates_csv} not found. Run 07_aggregate_and_rank.py first.")
@@ -65,231 +119,155 @@ with open(candidates_csv) as f:
     reader = csv.DictReader(f)
     candidates = list(reader)
 
-top = candidates[:top_n]
-print(f"\nBuilding PyMOL session with top {len(top)} designs...")
+if top_n is not None:
+    candidates = candidates[:top_n]
 
-# ── Discover structure files ──
+print(f"\nBuilding PyMOL session with {len(candidates)} designs...")
 
-def find_design_dir(predictions_dir, seq_id, state):
-    """Find the AF3 result directory for a design (handles timestamped dirs)."""
-    pattern = re.compile(
-        rf'^design_{seq_id}_{re.escape(state)}(?:_(\d{{8}}_\d{{6}}))?$'
-    )
-    candidates = []
+# ── Discover design structure files ──
+
+
+def find_best_model(predictions_dir, seq_id, state):
+    """Find the best (top-level) model CIF for a design."""
     if not predictions_dir.exists():
         return None
+
+    # Try padded dir format: design_NNNN_state/design_N_state/
+    padded = predictions_dir / f"design_{int(seq_id):04d}_{state}"
+    if padded.is_dir():
+        for sub in padded.iterdir():
+            if sub.is_dir():
+                cifs = list(sub.glob("*_model.cif"))
+                if cifs:
+                    return cifs[0]
+        cifs = list(padded.glob("*_model.cif"))
+        if cifs:
+            return cifs[0]
+
+    # Try non-padded: design_N_state/
+    non_padded = predictions_dir / f"design_{seq_id}_{state}"
+    if non_padded.is_dir():
+        cifs = list(non_padded.glob("*_model.cif"))
+        if cifs:
+            return cifs[0]
+
+    # Try with timestamps
+    pattern = re.compile(
+        rf'^design_{seq_id}_{re.escape(state)}(?:_\d{{8}}_\d{{6}})?$'
+    )
     for d in predictions_dir.iterdir():
-        if not d.is_dir():
-            continue
-        m = pattern.match(d.name)
-        if m:
-            has_model = bool(list(d.glob("*_model.cif")))
-            if has_model:
-                ts = m.group(1)
-                candidates.append((ts is not None, ts or "", d))
-    if not candidates:
-        return None
-    # Prefer non-timestamped, then latest timestamp
-    non_ts = [e for e in candidates if not e[0]]
-    if non_ts:
-        return non_ts[0][2]
-    candidates.sort(key=lambda e: e[1], reverse=True)
-    return candidates[0][2]
-
-
-def get_best_model(design_dir):
-    """Get the best (top-level) model CIF from a design directory."""
-    cifs = list(design_dir.glob("*_model.cif"))
-    if cifs:
-        return cifs[0]
+        if d.is_dir() and pattern.match(d.name):
+            cifs = list(d.glob("*_model.cif"))
+            if cifs:
+                return cifs[0]
+            for sub in d.iterdir():
+                if sub.is_dir():
+                    cifs = list(sub.glob("*_model.cif"))
+                    if cifs:
+                        return cifs[0]
     return None
 
-
-# ── Color scheme ──
-# Warm palette for holo (oranges/reds), cool for apo (blues/teals)
-holo_colors = [
-    [1.00, 0.60, 0.20],  # orange
-    [0.95, 0.45, 0.15],
-    [0.90, 0.35, 0.10],
-    [0.85, 0.28, 0.08],
-    [0.80, 0.20, 0.05],
-    [0.95, 0.55, 0.25],
-    [0.88, 0.40, 0.12],
-    [0.82, 0.32, 0.09],
-    [0.78, 0.25, 0.06],
-    [0.75, 0.18, 0.04],
-    [1.00, 0.50, 0.18],
-    [0.92, 0.42, 0.14],
-    [0.86, 0.34, 0.10],
-    [0.80, 0.26, 0.07],
-    [0.76, 0.20, 0.05],
-    [0.98, 0.58, 0.22],
-    [0.90, 0.38, 0.13],
-    [0.84, 0.30, 0.09],
-    [0.79, 0.23, 0.06],
-    [0.74, 0.17, 0.04],
-]
-
-apo_colors = [
-    [0.30, 0.60, 0.90],  # blue
-    [0.25, 0.50, 0.85],
-    [0.20, 0.45, 0.80],
-    [0.15, 0.40, 0.75],
-    [0.10, 0.35, 0.70],
-    [0.35, 0.55, 0.88],
-    [0.28, 0.48, 0.82],
-    [0.22, 0.42, 0.78],
-    [0.17, 0.38, 0.73],
-    [0.12, 0.33, 0.68],
-    [0.32, 0.58, 0.92],
-    [0.26, 0.52, 0.86],
-    [0.21, 0.46, 0.80],
-    [0.16, 0.40, 0.76],
-    [0.11, 0.34, 0.71],
-    [0.33, 0.56, 0.89],
-    [0.27, 0.49, 0.83],
-    [0.22, 0.43, 0.79],
-    [0.17, 0.37, 0.74],
-    [0.12, 0.32, 0.69],
-]
 
 # ── Reinitialize PyMOL ──
 cmd.reinitialize()
 cmd.set("cif_use_auth", 0)
 
-# ── 1. Load template input PDB ──
-template_name = top[0].get("template", "G4FP_des1_cro_mod0")
-output_dir_name = f"output_{template_name}" if not template_name.startswith("output_") else template_name
-template_name_clean = template_name.replace("output_", "")
+# ── Detect chromophore per template ──
+templates_seen = sorted(set(row["template"] for row in candidates))
+template_chromophore = {}  # template_name → "resi X-Z"
+for tpl in templates_seen:
+    output_dir = base_dir / f"output_{tpl}"
+    cr = detect_chromophore_residues(output_dir)
+    if cr is not None:
+        template_chromophore[tpl] = f"resi {cr[0]}-{cr[1]}"
+        print(f"  {tpl}: chromophore TYG at residues {cr[0]}-{cr[1]}")
+    else:
+        template_chromophore[tpl] = "resi 197-199"
+        print(f"  {tpl}: chromophore TYG not found, using 197-199")
 
-template_pdb = base_dir / "inputs" / f"{template_name_clean}.pdb"
-if template_pdb.exists():
-    obj_name = "template_input"
-    cmd.load(str(template_pdb), obj_name)
-    cmd.color("white", obj_name)
-    cmd.show("cartoon", obj_name)
-    cmd.set("cartoon_transparency", 0.5, obj_name)
-    print(f"  Loaded template PDB: {template_pdb.name}")
-else:
-    print(f"  WARNING: Template PDB not found: {template_pdb}")
+# Register template colors in PyMOL
+for tpl, rgb in TEMPLATE_COLORS.items():
+    cmd.set_color(f"tpl_{tpl}", rgb)
 
-# ── 2. Load template AF3 structures ──
-template_af3_holo = base_dir / "template_af3_outputs" / "bound"  # disk dir is "bound"
-template_af3_apo = base_dir / "template_af3_outputs" / "apo"
+# ── 1. Load template input PDBs ──
+template_objs = []
+for tpl in templates_seen:
+    template_pdb = base_dir / "inputs" / f"{tpl}.pdb"
+    if template_pdb.exists():
+        obj_name = f"tpl_{tpl}"
+        cmd.load(str(template_pdb), obj_name)
+        rgb = TEMPLATE_COLORS.get(tpl, [0.7, 0.7, 0.7])
+        cmd.set_color(f"c_{obj_name}", rgb)
+        cmd.color(f"c_{obj_name}", obj_name)
+        cmd.show("cartoon", obj_name)
+        cmd.set("cartoon_transparency", 0.6, obj_name)
+        template_objs.append(obj_name)
+        print(f"  Loaded template: {tpl}")
 
-for display_state, disk_state, af3_dir, color in [
-    ("holo", "bound", template_af3_holo, [0.4, 0.8, 0.4]),   # green
-    ("apo", "apo", template_af3_apo, [0.7, 0.4, 0.7]),       # purple
-]:
-    # Find matching template dir (lowercase variant)
-    tpl_pattern = f"template_{template_name_clean.lower()}_{disk_state}"
-    found = None
-    if af3_dir.exists():
-        for d in af3_dir.iterdir():
-            if d.is_dir() and d.name.lower().replace("_", "") == tpl_pattern.replace("_", ""):
-                found = d
-                break
-            # Also try direct match
-            if d.is_dir() and d.name.startswith(f"template_") and disk_state in d.name:
-                inner_name = template_name_clean.lower().replace("_", "")
-                dir_name = d.name.lower().replace("_", "").replace("template", "").replace(disk_state, "")
-                if inner_name.replace("_", "") == dir_name:
-                    found = d
-                    break
-        # Simpler: just glob for it
-        if found is None:
-            for d in af3_dir.iterdir():
-                if d.is_dir() and template_name_clean.lower().replace("_", "") in d.name.lower().replace("_", ""):
-                    found = d
-                    break
+if template_objs:
+    cmd.group("templates", " ".join(template_objs))
 
-    if found is not None:
-        # Check for nested dir
-        model_cif = list(found.glob("*_model.cif"))
-        if not model_cif:
-            for sub in found.iterdir():
-                if sub.is_dir():
-                    model_cif = list(sub.glob("*_model.cif"))
-                    if model_cif:
-                        break
-        if model_cif:
-            obj_name = f"template_af3_{display_state}"
-            cmd.load(str(model_cif[0]), obj_name)
-            cmd.color("green" if display_state == "holo" else "purpleblue", obj_name)
-            cmd.show("cartoon", obj_name)
-            cmd.set("cartoon_transparency", 0.3, obj_name)
-            print(f"  Loaded template AF3 {display_state}: {model_cif[0].name}")
-
-# ── 3. Load top N designs (holo + apo) ──
-predictions_holo = base_dir / output_dir_name / "03_alphafold3_predictions_bound"
-predictions_apo = base_dir / output_dir_name / "03_alphafold3_predictions_apo"
-
+# ── 2. Load all candidate designs (holo + apo) ──
+loaded_by_template = defaultdict(list)  # template → [obj_names]
 loaded_holo = []
 loaded_apo = []
 
-for idx, row in enumerate(top):
-    seq_id = int(row["seq_id"])
+for row in candidates:
+    seq_id = row["seq_id"]
+    tpl = row["template"]
     rank = int(row["final_rank"])
     fitness = float(row["fitness_score"])
+    output_dir = base_dir / f"output_{tpl}"
+    rgb = TEMPLATE_COLORS.get(tpl, [0.7, 0.7, 0.7])
 
-    for display_state, disk_state, pred_dir, colors, loaded_list in [
-        ("holo", "bound", predictions_holo, holo_colors, loaded_holo),
-        ("apo", "apo", predictions_apo, apo_colors, loaded_apo),
-    ]:
-        design_dir = find_design_dir(pred_dir, seq_id, disk_state)
-        if design_dir is None:
-            print(f"  WARNING: design_{seq_id}_{display_state} not found")
-            continue
-
-        model_cif = get_best_model(design_dir)
+    for display_state, disk_state in [("holo", "bound"), ("apo", "apo")]:
+        pred_dir = output_dir / f"03_alphafold3_predictions_{disk_state}"
+        model_cif = find_best_model(pred_dir, seq_id, disk_state)
         if model_cif is None:
             continue
 
-        obj_name = f"rank{rank:02d}_d{seq_id:04d}_{display_state}"
+        obj_name = f"r{rank:03d}_{tpl}_d{int(seq_id):04d}_{display_state}"
         cmd.load(str(model_cif), obj_name)
 
-        # Color by state
-        c = colors[idx % len(colors)]
-        cmd.set_color(f"c_{obj_name}", c)
+        # Color by template (matching plots)
+        cmd.set_color(f"c_{obj_name}", rgb)
         cmd.color(f"c_{obj_name}", obj_name)
         cmd.show("cartoon", obj_name)
 
-        loaded_list.append(obj_name)
+        if display_state == "holo":
+            loaded_holo.append(obj_name)
+        else:
+            loaded_apo.append(obj_name)
+        loaded_by_template[tpl].append(obj_name)
 
-    print(f"  Rank {rank}: design_{seq_id} "
-          f"(fitness={fitness:.3f}, dpLDDT={float(row.get('mean_plddt_diff', 0)):.1f})")
+    print(f"  Rank {rank}: {tpl} design_{seq_id} (fitness={fitness:.3f})")
 
-# ── 4. Create groups ──
+# ── 3. Create groups ──
 if loaded_holo:
     cmd.group("designs_holo", " ".join(loaded_holo))
 if loaded_apo:
     cmd.group("designs_apo", " ".join(loaded_apo))
 
-# Group templates
-tpl_objs = []
-if "template_input" in cmd.get_names():
-    tpl_objs.append("template_input")
-if "template_af3_holo" in cmd.get_names():
-    tpl_objs.append("template_af3_holo")
-if "template_af3_apo" in cmd.get_names():
-    tpl_objs.append("template_af3_apo")
-if tpl_objs:
-    cmd.group("templates", " ".join(tpl_objs))
+# Per-template groups
+for tpl in templates_seen:
+    objs = loaded_by_template.get(tpl, [])
+    if objs:
+        cmd.group(f"tpl_grp_{tpl}", " ".join(objs))
 
-# ── 5. Align everything to template ──
-ref_obj = "template_input" if "template_input" in cmd.get_names() else (
+# ── 4. Align everything to the first template ──
+ref_obj = template_objs[0] if template_objs else (
     loaded_holo[0] if loaded_holo else None)
 
 if ref_obj:
     all_objs = cmd.get_names("objects")
     for obj in all_objs:
-        if obj != ref_obj and obj not in ["templates", "designs_holo", "designs_apo"]:
+        if obj != ref_obj:
             try:
                 cmd.align(obj, ref_obj)
             except Exception:
                 pass
 
-# ── 6. Style settings ──
+# ── 5. Style settings ──
 cmd.set("cartoon_fancy_helices", 1)
 cmd.set("cartoon_smooth_loops", 1)
 cmd.set("cartoon_oval_length", 1.2)
@@ -298,31 +276,49 @@ cmd.set("antialias", 2)
 cmd.set("ray_shadows", 0)
 cmd.bg_color("white")
 
-# Show chain A cartoon only, hide other chains for clarity
+# Show chain A cartoon only
 cmd.hide("everything")
 cmd.show("cartoon", "chain A")
 
-# Highlight chromophore region (residues 197-199) as sticks
-cmd.select("chromophore", "resi 197-199 and chain A")
-cmd.show("sticks", "chromophore")
-cmd.color("yellow", "chromophore")
-cmd.deselect()
+# ── 6. Show chromophore TYG as sticks per template ──
+for tpl in templates_seen:
+    resi_sel = template_chromophore[tpl]
+    objs = loaded_by_template.get(tpl, [])
+    # Include the template input PDB object
+    tpl_obj = f"tpl_{tpl}"
+    if tpl_obj in cmd.get_names("objects"):
+        objs = [tpl_obj] + objs
 
-# Start with apo hidden (user can toggle)
+    for obj in objs:
+        sel_name = f"chrom_{obj}"
+        cmd.select(sel_name, f"{obj} and {resi_sel} and chain A")
+        cmd.show("sticks", sel_name)
+        cmd.color("yellow", sel_name)
+        cmd.deselect()
+
+# ── 7. Toggle visibility ──
+# Start with apo hidden
 if loaded_apo:
     cmd.disable("designs_apo")
+
+# Templates semi-transparent in background
+if template_objs:
+    cmd.disable("templates")
 
 # Zoom to fit
 cmd.zoom("chain A")
 cmd.orient()
 
-# ── 7. Save session ──
+# ── 8. Save session ──
 output_path = str(base_dir / output_name)
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 cmd.save(output_path)
 
+n_total = len(loaded_holo) + len(loaded_apo)
 print(f"\nPyMOL session saved: {output_path}")
 print(f"  {len(loaded_holo)} holo + {len(loaded_apo)} apo structures")
-print(f"  Groups: templates, designs_holo, designs_apo")
-print(f"  Apo group is disabled by default (toggle in PyMOL)")
+print(f"  {len(templates_seen)} templates (colored by tab10 palette)")
+print(f"  Groups: templates, designs_holo, designs_apo, tpl_grp_<name>")
+print(f"  Chromophore TYG shown as yellow sticks (per-template positions)")
+print(f"  Apo + templates disabled by default (toggle in PyMOL)")
 print(f"\nOpen with: pymol {output_name}")
