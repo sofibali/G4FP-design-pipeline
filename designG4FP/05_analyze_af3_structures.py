@@ -29,6 +29,71 @@ import seaborn as sns
 
 from Bio.PDB import PDBParser, MMCIFParser, Superimposer
 
+
+def detect_chromophore_range(output_dir: Path) -> Tuple[int, int]:
+    """Auto-detect chromophore (TYG) position from the protein sequence.
+
+    AF3 expands the CRO HETATM back into three standard residues Thr-Tyr-Gly.
+    This function finds the unique TYG tripeptide in the reference sequence
+    from the LigandMPNN FASTA output for the given template output directory
+    and returns a 1-indexed (start, end) range for use as
+    ``array[start-1 : end]`` (Python slice covering 3 residues).
+
+    Falls back to scanning AF3 input JSONs if the FASTA is unavailable.
+    """
+    import re as _re
+
+    def _find_tyg(seq: str, source: str) -> Optional[Tuple[int, int]]:
+        hits = [m.start() for m in _re.finditer('TYG', seq)]
+        if len(hits) == 1:
+            cs = hits[0] + 1   # 1-indexed start
+            ce = hits[0] + 3   # 1-indexed end (inclusive → slice end)
+            print(f"  Auto-detected chromophore TYG at sequence positions "
+                  f"{cs}-{ce} (from {source})")
+            return (cs, ce)
+        if len(hits) > 1:
+            print(f"  WARNING: {len(hits)} TYG motifs found in {source}, "
+                  f"using first at position {hits[0]+1}")
+            cs = hits[0] + 1
+            ce = hits[0] + 3
+            return (cs, ce)
+        return None
+
+    # Strategy 1: LigandMPNN reference sequence (first line of FASTA)
+    fa_dir = output_dir / "01_ligandmpnn" / "seqs"
+    if fa_dir.exists():
+        for fa in sorted(fa_dir.glob("*.fa")):
+            with open(fa) as f:
+                lines = f.readlines()
+            if len(lines) >= 2:
+                ref_seq = lines[1].strip()
+                result = _find_tyg(ref_seq, fa.name)
+                if result is not None:
+                    return result
+            break  # only need first FASTA
+
+    # Strategy 2: AF3 input JSON
+    for af3_dir_name in ["02_alphafold3_inputs_bound", "02_alphafold3_inputs_apo"]:
+        af3_dir = output_dir / af3_dir_name
+        if af3_dir.exists():
+            import json as _json
+            for jf in sorted(af3_dir.glob("*.json")):
+                if jf.name.endswith('.bak'):
+                    continue
+                try:
+                    data = _json.load(open(jf))
+                    seq = data['sequences'][0]['protein']['sequence']
+                    result = _find_tyg(seq, jf.name)
+                    if result is not None:
+                        return result
+                except (KeyError, IndexError, _json.JSONDecodeError):
+                    continue
+                break  # only need first JSON
+
+    print(f"  WARNING: Could not find TYG chromophore in {output_dir.name}, "
+          f"falling back to (197, 199)")
+    return (197, 199)
+
 warnings.filterwarnings('ignore')
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (12, 8)
@@ -99,8 +164,11 @@ def find_af3_result_dir(base_dir: Path) -> Optional[Path]:
     return None
 
 
-def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) -> pd.DataFrame:
-    """Load template metrics from AF3 outputs if available, else B-factors."""
+def load_template_metrics(base_dir: Path, chromophore_range: Optional[Tuple[int, int]] = None) -> pd.DataFrame:
+    """Load template metrics from AF3 outputs if available, else B-factors.
+
+    If *chromophore_range* is None, auto-detect CRO position per template.
+    """
     tpl_dir = base_dir / "template_af3_outputs"
     inputs_dir = base_dir / "inputs"
     pdb_parser = PDBParser(QUIET=True)
@@ -109,6 +177,12 @@ def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) ->
     for pdb in sorted(inputs_dir.glob("G4FP_*.pdb")):
         tpl_name = pdb.stem
         rec = {'template_name': tpl_name, 'source': 'bfactor'}
+
+        # Per-template chromophore range
+        tpl_output_dir = base_dir / f"output_{tpl_name}"
+        cr = chromophore_range if chromophore_range is not None else detect_chromophore_range(tpl_output_dir)
+        rec['chromophore_range_start'] = cr[0]
+        rec['chromophore_range_end'] = cr[1]
 
         # B-factor baseline
         structure = pdb_parser.get_structure('s', str(pdb))
@@ -123,7 +197,7 @@ def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) ->
             b_arr = np.array(b_factors)
             rec['mean_plddt'] = float(np.mean(b_arr))
             rec['n_residues'] = len(b_arr)
-            cs, ce = chromophore_range
+            cs, ce = cr
             if len(b_arr) >= ce:
                 rec['chromophore_mean_plddt'] = float(np.mean(b_arr[cs-1:ce]))
 
@@ -164,7 +238,7 @@ def load_template_metrics(base_dir: Path, chromophore_range: Tuple[int, int]) ->
                     plddt = compute_per_residue_plddt(fc, 'A')
                     if plddt is not None and len(plddt) > 1:
                         plddts.append(float(np.mean(plddt)))
-                        cs, ce = chromophore_range
+                        cs, ce = cr
                         if len(plddt) >= ce:
                             chrom_plddts.append(float(np.mean(plddt[cs-1:ce])))
 
@@ -196,15 +270,19 @@ class AlphaFoldStructureAnalyzer:
     """Analyze AF3 predictions for one output directory, all seeds."""
 
     def __init__(self, output_dir: Path, reference_template: Path,
-                 chromophore_range: Tuple[int, int] = (197, 199)):
+                 chromophore_range: Optional[Tuple[int, int]] = None):
         self.output_dir = Path(output_dir)
         self.reference_template = Path(reference_template)
-        self.chromophore_range = chromophore_range
         self.pdb_parser = PDBParser(QUIET=True)
         self.cif_parser = MMCIFParser(QUIET=True)
         self.ref_structure = self._load_structure(self.reference_template)
         self.ref_ca_atoms = self._extract_ca_atoms(self.ref_structure)
         self.template_name = self.output_dir.name.replace("output_", "")
+        # Auto-detect chromophore TYG from sequence if not provided
+        if chromophore_range is not None:
+            self.chromophore_range = chromophore_range
+        else:
+            self.chromophore_range = detect_chromophore_range(self.output_dir)
         print(f"  Reference: {self.reference_template} ({len(self.ref_ca_atoms)} CA)")
 
     def _load_structure(self, filepath: Path):
@@ -800,15 +878,20 @@ def main():
                         help='Reference structure for RMSD')
     parser.add_argument('--state', type=str, default='both',
                         choices=['holo', 'apo', 'both'])
-    parser.add_argument('--chromophore-range', type=str, default='197,199')
+    parser.add_argument('--chromophore-range', type=str, default='auto',
+                        help='Chromophore residue range (e.g. 197,199) or '
+                             '"auto" to detect from each template PDB')
     parser.add_argument('--analysis-output-dir', type=str,
                         default='analysis_output')
     parser.add_argument('--force', action='store_true',
                         help='Re-analyze even if results CSV exists')
 
     args = parser.parse_args()
-    cs, ce = map(int, args.chromophore_range.split(','))
-    chromophore_range = (cs, ce)
+    if args.chromophore_range == 'auto':
+        chromophore_range = None  # auto-detect per template
+    else:
+        cs, ce = map(int, args.chromophore_range.split(','))
+        chromophore_range = (cs, ce)
     base_dir = Path(__file__).resolve().parent
 
     if args.output_dir:
@@ -840,6 +923,7 @@ def main():
     print(f"{'='*80}")
 
     all_frames = []
+    inputs_dir = base_dir / "inputs"
     for odir in output_dirs:
         print(f"\n--- {odir.name} ---")
         csv_path = odir / "05_structure_analysis_results.csv"
@@ -852,10 +936,16 @@ def main():
                     continue
             except Exception:
                 pass  # re-analyze if CSV is corrupt
+
+        # Match template PDB for this output directory
+        tpl_name = odir.name.replace("output_", "")
+        tpl_pdb = inputs_dir / f"{tpl_name}.pdb"
+        ref_template = Path(tpl_pdb) if tpl_pdb.exists() else Path(args.template)
+
         try:
             analyzer = AlphaFoldStructureAnalyzer(
                 output_dir=odir,
-                reference_template=Path(args.template),
+                reference_template=ref_template,
                 chromophore_range=chromophore_range,
             )
             df = analyzer.analyze_all_designs(state=args.state)

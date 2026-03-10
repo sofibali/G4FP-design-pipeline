@@ -27,7 +27,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Configuration
-CHROMOPHORE_RANGE="175,225"  # Adjust if needed
+CHROMOPHORE_RANGE="auto"  # Auto-detect CRO position from each template PDB
 
 # Parse arguments
 if [ $# -lt 1 ]; then
