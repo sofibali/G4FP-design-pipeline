@@ -71,41 +71,21 @@ TEMPLATE_COLORS = {
 
 
 def detect_chromophore_residues(output_dir):
-    """Find TYG tripeptide position in the protein sequence.
+    """Find chromophore position from the CRO residue in the template PDB.
 
     Returns 1-indexed (start, end) or None.
     """
-    # Strategy 1: LigandMPNN reference FASTA
-    fa_dir = output_dir / "01_ligandmpnn" / "seqs"
-    if fa_dir.exists():
-        for fa in sorted(fa_dir.glob("*.fa")):
-            with open(fa) as f:
-                lines = f.readlines()
-            if len(lines) >= 2:
-                seq = lines[1].strip()
-                idx = seq.find("TYG")
-                if idx >= 0:
-                    return (idx + 1, idx + 3)  # 1-indexed
-            break
+    tpl_name = output_dir.name.replace("output_", "")
+    inputs_dir = output_dir.parent / "inputs"
+    tpl_pdb = inputs_dir / f"{tpl_name}.pdb"
 
-    # Strategy 2: AF3 input JSON
-    import json
-    for sub in ["02_alphafold3_inputs_bound", "02_alphafold3_inputs_apo"]:
-        af3_dir = output_dir / sub
-        if not af3_dir.exists():
-            continue
-        for jf in sorted(af3_dir.glob("*.json")):
-            if jf.name.endswith('.bak'):
-                continue
-            try:
-                data = json.load(open(jf))
-                seq = data['sequences'][0]['protein']['sequence']
-                idx = seq.find("TYG")
-                if idx >= 0:
-                    return (idx + 1, idx + 3)
-            except Exception:
-                pass
-            break
+    if tpl_pdb.exists():
+        with open(tpl_pdb) as f:
+            for line in f:
+                if (line.startswith("ATOM") or line.startswith("HETATM")) and \
+                   line[17:20].strip() == "CRO":
+                    cro_resid = int(line[22:26].strip())
+                    return (cro_resid, cro_resid + 2)
     return None
 
 

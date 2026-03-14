@@ -31,66 +31,35 @@ from Bio.PDB import PDBParser, MMCIFParser, Superimposer
 
 
 def detect_chromophore_range(output_dir: Path) -> Tuple[int, int]:
-    """Auto-detect chromophore (TYG) position from the protein sequence.
+    """Detect chromophore position from the CRO residue in the template PDB.
 
-    AF3 expands the CRO HETATM back into three standard residues Thr-Tyr-Gly.
-    This function finds the unique TYG tripeptide in the reference sequence
-    from the LigandMPNN FASTA output for the given template output directory
-    and returns a 1-indexed (start, end) range for use as
-    ``array[start-1 : end]`` (Python slice covering 3 residues).
+    The template PDB contains a CRO HETATM residue at the chromophore site.
+    AF3 expands CRO into three standard residues (Thr-Tyr-Gly) at the same
+    residue index.  Since CRO occupies one residue number but becomes 3
+    residues in AF3, the chromophore spans (cro_resid, cro_resid + 2) in
+    the AF3 auth_seq_id numbering.
 
-    Falls back to scanning AF3 input JSONs if the FASTA is unavailable.
+    Returns 1-indexed (start, end) for use as ``array[start-1 : end]``.
     """
-    import re as _re
+    # Find the template PDB in the inputs/ directory
+    tpl_name = output_dir.name.replace("output_", "")
+    inputs_dir = output_dir.parent / "inputs"
+    tpl_pdb = inputs_dir / f"{tpl_name}.pdb"
 
-    def _find_tyg(seq: str, source: str) -> Optional[Tuple[int, int]]:
-        hits = [m.start() for m in _re.finditer('TYG', seq)]
-        if len(hits) == 1:
-            cs = hits[0] + 1   # 1-indexed start
-            ce = hits[0] + 3   # 1-indexed end (inclusive → slice end)
-            print(f"  Auto-detected chromophore TYG at sequence positions "
-                  f"{cs}-{ce} (from {source})")
-            return (cs, ce)
-        if len(hits) > 1:
-            print(f"  WARNING: {len(hits)} TYG motifs found in {source}, "
-                  f"using first at position {hits[0]+1}")
-            cs = hits[0] + 1
-            ce = hits[0] + 3
-            return (cs, ce)
-        return None
+    if tpl_pdb.exists():
+        with open(tpl_pdb) as f:
+            for line in f:
+                if (line.startswith("ATOM") or line.startswith("HETATM")) and \
+                   line[17:20].strip() == "CRO":
+                    cro_resid = int(line[22:26].strip())
+                    # CRO → TYG: 1 residue becomes 3, starting at cro_resid
+                    cs = cro_resid
+                    ce = cro_resid + 2
+                    print(f"  Chromophore: CRO at PDB residue {cro_resid} "
+                          f"→ TYG at {cs}-{ce} (from {tpl_pdb.name})")
+                    return (cs, ce)
 
-    # Strategy 1: LigandMPNN reference sequence (first line of FASTA)
-    fa_dir = output_dir / "01_ligandmpnn" / "seqs"
-    if fa_dir.exists():
-        for fa in sorted(fa_dir.glob("*.fa")):
-            with open(fa) as f:
-                lines = f.readlines()
-            if len(lines) >= 2:
-                ref_seq = lines[1].strip()
-                result = _find_tyg(ref_seq, fa.name)
-                if result is not None:
-                    return result
-            break  # only need first FASTA
-
-    # Strategy 2: AF3 input JSON
-    for af3_dir_name in ["02_alphafold3_inputs_bound", "02_alphafold3_inputs_apo"]:
-        af3_dir = output_dir / af3_dir_name
-        if af3_dir.exists():
-            import json as _json
-            for jf in sorted(af3_dir.glob("*.json")):
-                if jf.name.endswith('.bak'):
-                    continue
-                try:
-                    data = _json.load(open(jf))
-                    seq = data['sequences'][0]['protein']['sequence']
-                    result = _find_tyg(seq, jf.name)
-                    if result is not None:
-                        return result
-                except (KeyError, IndexError, _json.JSONDecodeError):
-                    continue
-                break  # only need first JSON
-
-    print(f"  WARNING: Could not find TYG chromophore in {output_dir.name}, "
+    print(f"  WARNING: No CRO found in template PDB for {output_dir.name}, "
           f"falling back to (197, 199)")
     return (197, 199)
 
