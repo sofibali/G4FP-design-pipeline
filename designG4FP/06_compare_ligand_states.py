@@ -243,6 +243,101 @@ class LigandStateComparator:
         else:
             self.chromophore_range = detect_chromophore_range(self.output_dir)
 
+        # Load template AF3 replicate CA atoms for RMSD-vs-template
+        self.template_holo_ca_list = []
+        self.template_apo_ca_list = []
+        self._load_template_replicates()
+
+    def _load_template_replicates(self):
+        """Load CA atoms from template AF3 replicates for both states."""
+        base_dir = self.output_dir.parent  # designG4FP dir
+        tpl_af3_dir = base_dir / "template_af3_outputs"
+        if not tpl_af3_dir.exists():
+            return
+
+        tpl_name = self.template_name
+        for state, disk_state, ca_list in [
+            ('holo', 'bound', self.template_holo_ca_list),
+            ('apo', 'apo', self.template_apo_ca_list),
+        ]:
+            af3_name = f"template_{tpl_name}_{disk_state}"
+            af3_base = tpl_af3_dir / disk_state / af3_name
+            if not af3_base.exists():
+                continue
+            result_dir = find_af3_result_dir(af3_base)
+            if result_dir is None:
+                continue
+            seed_dirs = discover_seed_sample_dirs(result_dir)
+            for _s, _sa, sd in seed_dirs:
+                model_cif = sd / 'model.cif'
+                if not model_cif.exists():
+                    continue
+                try:
+                    struct = self._load_structure(model_cif)
+                    ca_atoms = self._extract_ca_atoms(struct, 'A')
+                    if len(ca_atoms) >= 10:
+                        ca_list.append(ca_atoms)
+                except Exception:
+                    continue
+
+        if self.template_holo_ca_list or self.template_apo_ca_list:
+            print(f"  Loaded template replicates: "
+                  f"{len(self.template_holo_ca_list)} holo, "
+                  f"{len(self.template_apo_ca_list)} apo")
+
+    def _compute_rmsd_vs_template(self, design_seed_dir: Path,
+                                  state: str) -> Dict[str, float]:
+        """Compute RMSD of a design seed against all template replicates.
+
+        Returns dict with template_global_rmsd (mean across replicates)
+        and template_chromophore_rmsd.
+        """
+        ca_list = (self.template_holo_ca_list if state == 'holo'
+                   else self.template_apo_ca_list)
+        if not ca_list:
+            return {}
+
+        model_cif = design_seed_dir / 'model.cif'
+        if not model_cif.exists():
+            return {}
+
+        try:
+            struct = self._load_structure(model_cif)
+            design_ca = self._extract_ca_atoms(struct, 'A')
+            if len(design_ca) < 10:
+                return {}
+        except Exception:
+            return {}
+
+        global_rmsds = []
+        chrom_rmsds = []
+        cs, ce = self.chromophore_range
+
+        for tpl_ca in ca_list:
+            min_len = min(len(design_ca), len(tpl_ca))
+            if min_len < 10:
+                continue
+            d_ca = design_ca[:min_len]
+            t_ca = tpl_ca[:min_len]
+            try:
+                sup = Superimposer()
+                sup.set_atoms(t_ca, d_ca)
+                global_rmsds.append(sup.rms)
+
+                if min_len >= ce:
+                    sup_c = Superimposer()
+                    sup_c.set_atoms(t_ca[cs-1:ce], d_ca[cs-1:ce])
+                    chrom_rmsds.append(sup_c.rms)
+            except Exception:
+                continue
+
+        result = {}
+        if global_rmsds:
+            result['template_global_rmsd'] = float(np.mean(global_rmsds))
+        if chrom_rmsds:
+            result['template_chromophore_rmsd'] = float(np.mean(chrom_rmsds))
+        return result
+
     def _load_structure(self, filepath: Path):
         if filepath.suffix == '.pdb':
             return self.pdb_parser.get_structure('s', str(filepath))
@@ -469,6 +564,45 @@ class LigandStateComparator:
             if rmsds:
                 result['mean_per_res_rmsd'] = result['global_rmsd']
                 result['max_per_res_rmsd'] = float(np.max(rmsds))
+
+        # RMSD vs template AF3 replicates
+        if self.template_holo_ca_list or self.template_apo_ca_list:
+            for state, seed_list, prefix in [
+                ('holo', holo_seeds, 'holo_template'),
+                ('apo', apo_seeds, 'apo_template'),
+            ]:
+                global_vals = []
+                chrom_vals = []
+                for _s, _sa, sd in seed_list:
+                    tpl_rmsd = self._compute_rmsd_vs_template(sd, state)
+                    if 'template_global_rmsd' in tpl_rmsd:
+                        global_vals.append(tpl_rmsd['template_global_rmsd'])
+                    if 'template_chromophore_rmsd' in tpl_rmsd:
+                        chrom_vals.append(tpl_rmsd['template_chromophore_rmsd'])
+
+                if global_vals:
+                    result[f'{prefix}_rmsd'] = float(np.mean(global_vals))
+                    result[f'{prefix}_rmsd_sd'] = (
+                        float(np.std(global_vals)) if len(global_vals) > 1
+                        else 0.0)
+                if chrom_vals:
+                    result[f'{prefix}_chromophore_rmsd'] = float(
+                        np.mean(chrom_vals))
+                    result[f'{prefix}_chromophore_rmsd_sd'] = (
+                        float(np.std(chrom_vals)) if len(chrom_vals) > 1
+                        else 0.0)
+
+            # Difference: holo - apo template RMSD
+            if ('holo_template_rmsd' in result
+                    and 'apo_template_rmsd' in result):
+                result['template_rmsd_diff'] = (
+                    result['holo_template_rmsd']
+                    - result['apo_template_rmsd'])
+            if ('holo_template_chromophore_rmsd' in result
+                    and 'apo_template_chromophore_rmsd' in result):
+                result['template_chromophore_rmsd_diff'] = (
+                    result['holo_template_chromophore_rmsd']
+                    - result['apo_template_chromophore_rmsd'])
 
         return result
 
