@@ -91,6 +91,19 @@ else
     echo -e "${GREEN}  Step 05: All ${#TEMPLATES[@]} templates complete${NC}"
 fi
 
+# ── Step 05b: Re-run 05 combined (merge all per-template results + plots) ──
+echo ""
+echo -e "${BLUE}Step 05b: Generating combined 05 plots (all designs)...${NC}"
+
+python3 05_analyze_af3_structures.py --force \
+    > "$LOG_DIR/05_combined.log" 2>&1
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}  Step 05b: Complete${NC}"
+else
+    echo -e "${RED}  Step 05b: Failed — check $LOG_DIR/05_combined.log${NC}"
+fi
+
 # ── Step 06: Ligand state comparison (parallel) ──
 echo ""
 echo -e "${BLUE}Step 06: Running ligand state comparison (${#TEMPLATES[@]} templates parallel)...${NC}"
@@ -128,11 +141,24 @@ else
     echo -e "${GREEN}  Step 06: All ${#TEMPLATES[@]} templates complete${NC}"
 fi
 
+# ── Step 06b: Re-run 06 combined (merge all per-template results + plots) ──
+echo ""
+echo -e "${BLUE}Step 06b: Generating combined 06 plots (all 1000 designs)...${NC}"
+
+python3 06_compare_ligand_states.py --force \
+    > "$LOG_DIR/06_combined.log" 2>&1
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}  Step 06b: Complete${NC}"
+else
+    echo -e "${RED}  Step 06b: Failed — check $LOG_DIR/06_combined.log${NC}"
+fi
+
 # ── Step 07: Aggregate and rank (single job, needs all results) ──
 echo ""
 echo -e "${BLUE}Step 07: Aggregating and ranking...${NC}"
 
-python3 07_aggregate_and_rank.py --force \
+python3 07_aggregate_and_rank.py \
     > "$LOG_DIR/07_aggregate.log" 2>&1
 
 if [ $? -eq 0 ]; then
