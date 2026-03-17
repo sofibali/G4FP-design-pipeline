@@ -584,6 +584,7 @@ def _plot_af3_metrics(df, template_df, output_dir, csv_dir):
 
     plt.tight_layout()
     plt.savefig(output_dir / '02_alphafold3_metrics.png', dpi=300, bbox_inches='tight')
+    plt.savefig(str(output_dir / '02_alphafold3_metrics.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     export_cols = [c for c in ['seq_id', 'state', 'template', 'n_seeds'] +
@@ -626,6 +627,7 @@ def _plot_sd_overview(df, output_dir, csv_dir):
 
     plt.tight_layout()
     plt.savefig(output_dir / '03_sd_overview.png', dpi=300, bbox_inches='tight')
+    plt.savefig(str(output_dir / '03_sd_overview.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  03_sd_overview.png")
 
@@ -672,6 +674,7 @@ def _plot_rmsd_distributions(df, template_df, output_dir, csv_dir):
 
     plt.tight_layout()
     plt.savefig(output_dir / '04_rmsd_distributions.png', dpi=300, bbox_inches='tight')
+    plt.savefig(str(output_dir / '04_rmsd_distributions.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     cols = [c for c in ['seq_id', 'state', 'template', 'global_rmsd',
@@ -728,6 +731,7 @@ def _plot_global_vs_chromophore_rmsd(df, template_df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '06_global_vs_chromophore_rmsd.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '06_global_vs_chromophore_rmsd.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     cols = [c for c in ['seq_id', 'state', 'template', 'global_rmsd',
@@ -789,6 +793,7 @@ def _plot_plddt_vs_rmsd_sd(df, template_df, output_dir, csv_dir):
 
     plt.tight_layout()
     plt.savefig(output_dir / '07_plddt_vs_rmsd.png', dpi=300, bbox_inches='tight')
+    plt.savefig(str(output_dir / '07_plddt_vs_rmsd.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  07_plddt_vs_rmsd.png")
 
@@ -808,6 +813,7 @@ def _plot_correlation_matrix(df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '05_correlation_matrix.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '05_correlation_matrix.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     corr.to_csv(csv_dir / '05_correlation_matrix_data.csv')
     print("  05_correlation_matrix.png")

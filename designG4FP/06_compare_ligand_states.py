@@ -725,6 +725,7 @@ def _plot_rmsd_distributions(df, template_df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '01_holo_apo_rmsd.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '01_holo_apo_rmsd.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     cols = [c for c in ['seq_id', 'template', 'global_rmsd', 'global_rmsd_sd',
@@ -848,6 +849,7 @@ def _plot_plddt_comparison(df, template_df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '02_plddt_comparison.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '02_plddt_comparison.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     cols = [c for c in ['seq_id', 'template', 'holo_mean_plddt',
@@ -945,6 +947,7 @@ def _plot_chromophore_plddt(df, template_df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '03_chromophore_plddt_comparison.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '03_chromophore_plddt_comparison.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  03_chromophore_plddt_comparison.png")
 
@@ -995,6 +998,7 @@ def _plot_rmsd_vs_plddt_change(df, template_df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '04_rmsd_vs_plddt_change.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '04_rmsd_vs_plddt_change.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  04_rmsd_vs_plddt_change.png")
 
@@ -1038,6 +1042,7 @@ def _plot_sd_overview(df, output_dir, csv_dir):
 
     plt.tight_layout(rect=[0, 0, 0.95, 1])
     plt.savefig(output_dir / '05_sd_overview.png', dpi=300, bbox_inches='tight')
+    plt.savefig(str(output_dir / '05_sd_overview.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  05_sd_overview.png")
 
@@ -1109,6 +1114,7 @@ def _plot_per_template_summary(df, template_df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '07_per_template_summary.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '07_per_template_summary.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  07_per_template_summary.png")
 
@@ -1174,6 +1180,7 @@ def _plot_top20_heatmap(df, output_dir, csv_dir):
     plt.colorbar(im, ax=ax, label='Normalized value (0=worst, 1=best)', shrink=0.6)
     plt.tight_layout()
     plt.savefig(output_dir / '08_top20_heatmap.png', dpi=300, bbox_inches='tight')
+    plt.savefig(str(output_dir / '08_top20_heatmap.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     top20[['seq_id', 'template'] + all_cols].to_csv(
@@ -1203,6 +1210,7 @@ def _plot_correlation_matrix(df, output_dir, csv_dir):
     plt.tight_layout()
     plt.savefig(output_dir / '06_correlation_matrix.png', dpi=300,
                 bbox_inches='tight')
+    plt.savefig(str(output_dir / '06_correlation_matrix.png').replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     corr.to_csv(csv_dir / '06_correlation_matrix_data.csv')
     print("  06_correlation_matrix.png")

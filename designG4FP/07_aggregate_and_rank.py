@@ -743,6 +743,7 @@ def _plot_top10_per_template_heatmap(df_all, df_selected, df_pareto,
     plt.tight_layout()
     plt.savefig(output_dir / "07_top10_per_template_heatmap.png",
                 dpi=300, bbox_inches="tight")
+    plt.savefig(str(output_dir / "07_top10_per_template_heatmap.png").replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     top_per_tpl[['global_id', 'template', 'seq_id'] + all_cols].to_csv(
@@ -832,6 +833,7 @@ def _plot_top50_global_heatmap(df_all, df_selected, df_pareto,
     plt.tight_layout()
     plt.savefig(output_dir / "07_top50_global_heatmap.png",
                 dpi=300, bbox_inches="tight")
+    plt.savefig(str(output_dir / "07_top50_global_heatmap.png").replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
 
     top50[['global_id', 'template', 'seq_id'] + all_cols].to_csv(
@@ -1019,6 +1021,7 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
     plt.tight_layout()
     plt.savefig(output_dir / "07_selection_summary.png", dpi=300,
                 bbox_inches="tight")
+    plt.savefig(str(output_dir / "07_selection_summary.png").replace('.png', '.svg'), bbox_inches='tight')
     plt.close()
     print("  07_selection_summary.png")
 
@@ -1069,6 +1072,7 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.tight_layout()
         plt.savefig(output_dir / "07_holo_vs_apo_scatter.png", dpi=300,
                     bbox_inches="tight")
+        plt.savefig(str(output_dir / "07_holo_vs_apo_scatter.png").replace('.png', '.svg'), bbox_inches='tight')
         plt.close()
         print("  07_holo_vs_apo_scatter.png")
 
@@ -1121,6 +1125,7 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.tight_layout()
         plt.savefig(output_dir / "07_holo_vs_apo_sd.png", dpi=300,
                     bbox_inches="tight")
+        plt.savefig(str(output_dir / "07_holo_vs_apo_sd.png").replace('.png', '.svg'), bbox_inches='tight')
         plt.close()
         print("  07_holo_vs_apo_sd.png")
 
@@ -1180,6 +1185,7 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.tight_layout()
         plt.savefig(output_dir / "07_sd_overview.png", dpi=300,
                     bbox_inches="tight")
+        plt.savefig(str(output_dir / "07_sd_overview.png").replace('.png', '.svg'), bbox_inches='tight')
         plt.close()
         print("  07_sd_overview.png")
 
@@ -1241,6 +1247,7 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.tight_layout()
         plt.savefig(output_dir / "07_pareto_plot.png", dpi=300,
                     bbox_inches="tight")
+        plt.savefig(str(output_dir / "07_pareto_plot.png").replace('.png', '.svg'), bbox_inches='tight')
         plt.close()
         print("  07_pareto_plot.png")
 
@@ -1297,6 +1304,7 @@ def create_visualizations(df_all: pd.DataFrame, df_selected: pd.DataFrame,
         plt.tight_layout()
         plt.savefig(output_dir / "07_fitness_components.png", dpi=300,
                     bbox_inches="tight")
+        plt.savefig(str(output_dir / "07_fitness_components.png").replace('.png', '.svg'), bbox_inches='tight')
         plt.close()
         print("  07_fitness_components.png")
 
