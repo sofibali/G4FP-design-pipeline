@@ -317,13 +317,18 @@ ref_obj = template_objs[0] if template_objs else (
 
 if ref_obj:
     print("\nAligning structures...")
-    all_objs = cmd.get_names("objects")
+    # Only align actual molecule objects, not groups
+    all_objs = cmd.get_names("objects", enabled_only=0)
     for obj in all_objs:
-        if obj != ref_obj:
-            try:
-                cmd.align(obj, ref_obj)
-            except Exception:
-                pass
+        if obj == ref_obj:
+            continue
+        # Skip group objects
+        try:
+            if cmd.get_type(obj) != "object:molecule":
+                continue
+            cmd.align(f"{obj} and chain A", f"{ref_obj} and chain A")
+        except Exception:
+            pass
 
 # ── 5. Style settings ──
 cmd.set("cartoon_fancy_helices", 1)
