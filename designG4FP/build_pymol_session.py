@@ -20,6 +20,7 @@ Usage:
 import sys
 import os
 import re
+import shutil
 from pathlib import Path
 from collections import defaultdict
 
@@ -181,6 +182,9 @@ print(f"  {len(templates_seen)} templates")
 cmd.reinitialize()
 cmd.set("cif_use_auth", 1)
 
+# Track all loaded files for copying to share directory
+loaded_files = []  # list of (source_path, dest_subdir, dest_filename)
+
 # Register template colors
 for tpl, rgb in TEMPLATE_COLORS.items():
     cmd.set_color(f"tpl_{tpl}", rgb)
@@ -204,6 +208,7 @@ for tpl in templates_seen:
         cmd.show("cartoon", obj_name)
         cmd.set("cartoon_transparency", 0.5, obj_name)
         template_objs.append(obj_name)
+        loaded_files.append((template_pdb, "templates", f"{obj_name}.pdb"))
         print(f"  Input PDB: {tpl}")
 
     # 1b. AF3 replicate structures (holo only, 5 replicates)
@@ -220,6 +225,7 @@ for tpl in templates_seen:
             cmd.show("cartoon", f"{obj_name} and chain A")
             cmd.set("cartoon_transparency", 0.4, obj_name)
             tpl_replicate_objs.append(obj_name)
+            loaded_files.append((cif, f"templates/{short}", f"{obj_name}.cif"))
         if seed_dirs:
             print(f"  AF3 replicates: {tpl} ({len(seed_dirs)} seeds)")
 
@@ -267,6 +273,7 @@ for (tpl, seq_id), row in sorted(selected.items()):
             cmd.color(color_name, obj_name)
             all_design_objs.append(obj_name)
             loaded_by_template[tpl].append(obj_name)
+            loaded_files.append((top_cif[0], f"designs/{short_tpl}", f"{obj_name}.cif"))
             if (tpl, seq_id) in top10_keys:
                 top10_objs.append(obj_name)
         continue
@@ -280,6 +287,7 @@ for (tpl, seq_id), row in sorted(selected.items()):
         cmd.color(color_name, f"{obj_name} and chain A")
         all_design_objs.append(obj_name)
         loaded_by_template[tpl].append(obj_name)
+        loaded_files.append((cif, f"designs/{short_tpl}", f"{obj_name}.cif"))
         if (tpl, seq_id) in top10_keys:
             top10_objs.append(obj_name)
 
@@ -365,7 +373,26 @@ if all_tpl_objs:
 cmd.zoom()
 cmd.orient()
 
-# ── 10. Save session ──
+# ── 10. Copy loaded structure files for sharing ──
+share_dir = base_dir / "07_results" / "structure_files"
+if share_dir.exists():
+    shutil.rmtree(share_dir)
+share_dir.mkdir(parents=True, exist_ok=True)
+
+n_copied = 0
+for src, subdir, dest_name in loaded_files:
+    dest_dir = share_dir / subdir
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / dest_name
+    try:
+        shutil.copy2(src, dest)
+        n_copied += 1
+    except Exception as e:
+        print(f"  WARNING: Could not copy {src}: {e}")
+
+print(f"\nCopied {n_copied} structure files to {share_dir}/")
+
+# ── 11. Save session ──
 output_path = str(base_dir / output_name)
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 cmd.save(output_path)
