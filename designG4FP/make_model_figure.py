@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Generate a publication-quality multi-panel overview figure for the G4FP
-design-analysis pipeline.
+Generate a multi-panel cartoon schematic showing what the G4FP analysis
+measures and how top designs are selected.
 
 Panels:
-  A  (top, full width)   Pipeline flow chart
-  B  (bottom left)       Structure comparison schematic
-  C  (bottom right)      Multi-objective selection strategy
+  A  (top-left)     Holo structure cartoon with annotated metrics
+  B  (top-right)    Apo structure cartoon + holo-vs-apo comparison
+  C  (bottom-left)  Pareto frontier cartoon (3 objectives)
+  D  (bottom-right) Selection funnel: how top designs are picked
 
-Requires only matplotlib (no external images).
+All drawings use matplotlib primitives (no external images).
 
 Usage:
     python3 make_model_figure.py
@@ -18,41 +19,33 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Circle, Arc
+from matplotlib.collections import PatchCollection
 import numpy as np
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Colour palette
-# ---------------------------------------------------------------------------
-TAB10 = plt.cm.tab10.colors  # 10 colours for templates
-STAGE_COLORS = {
-    "input":    "#4e79a7",  # steel blue
-    "design":   "#59a14f",  # green
-    "filter":   "#edc948",  # gold
-    "predict":  "#e15759",  # coral red
-    "analyse":  "#76b7b2",  # teal
-    "rank":     "#b07aa1",  # purple
-}
+# ── Colours ──
 HOLO_CLR = "#2a7bbe"
-APO_CLR  = "#d95f02"
+APO_CLR = "#d95f02"
+DNA_CLR = "#7b9e3a"
+CHROM_CLR = "#fbbf24"  # yellow
+ION_CLR = "#9333ea"    # purple
 PARETO_CLR = "#e41a1c"
-BG_CLR   = "white"
+SELECTED_CLR = "#4e79a7"
+BG_CLR = "white"
+METRIC_CLR = "#1e3a5f"
+LIGHT_BLUE = "#dbeafe"
+LIGHT_ORANGE = "#ffedd5"
+LIGHT_GREEN = "#dcfce7"
+LIGHT_RED = "#fee2e2"
 
 
-# ---------------------------------------------------------------------------
-# Helper: draw a rounded box with centred text
-# ---------------------------------------------------------------------------
 def _box(ax, x, y, w, h, text, color, fontsize=9, text_color="white",
          alpha=1.0, style="round,pad=0.08", lw=1.2, zorder=3):
-    """Draw a FancyBboxPatch and centred text, return patch centre."""
     box = FancyBboxPatch(
-        (x - w / 2, y - h / 2), w, h,
-        boxstyle=style,
+        (x - w / 2, y - h / 2), w, h, boxstyle=style,
         facecolor=color, edgecolor="0.25", linewidth=lw, alpha=alpha,
-        zorder=zorder,
-    )
+        zorder=zorder)
     ax.add_patch(box)
     ax.text(x, y, text, ha="center", va="center",
             fontsize=fontsize, color=text_color, fontweight="bold",
@@ -60,291 +53,458 @@ def _box(ax, x, y, w, h, text, color, fontsize=9, text_color="white",
     return (x, y)
 
 
-def _arrow(ax, xy_from, xy_to, color="0.35", lw=1.8, style="->",
-           connectionstyle="arc3,rad=0", shrinkA=8, shrinkB=8):
-    """Draw a FancyArrowPatch between two (x,y) points."""
+def _arrow(ax, xy_from, xy_to, color="0.35", lw=1.8, style="-|>",
+           connectionstyle="arc3,rad=0", shrinkA=8, shrinkB=8, zorder=2):
     arrow = FancyArrowPatch(
-        xy_from, xy_to,
-        arrowstyle=style, color=color, linewidth=lw,
-        connectionstyle=connectionstyle,
-        shrinkA=shrinkA, shrinkB=shrinkB,
-        zorder=2,
-    )
+        xy_from, xy_to, arrowstyle=style, color=color, linewidth=lw,
+        connectionstyle=connectionstyle, shrinkA=shrinkA, shrinkB=shrinkB,
+        zorder=zorder)
     ax.add_patch(arrow)
-    return arrow
 
 
-def _multiline(ax, x, y, lines, fontsize=8, va="top", ha="left",
-               color="0.15", linespacing=1.35, **kw):
-    ax.text(x, y, "\n".join(lines), fontsize=fontsize, va=va, ha=ha,
-            color=color, linespacing=linespacing, **kw)
+def _callout(ax, text, xy_point, xy_text, fontsize=7.5, color=METRIC_CLR,
+             arrowcolor="0.5"):
+    """Draw an annotation with an arrow from xy_text to xy_point."""
+    ax.annotate(text, xy=xy_point, xytext=xy_text,
+                fontsize=fontsize, color=color, fontweight="bold",
+                arrowprops=dict(arrowstyle="-|>", color=arrowcolor,
+                                lw=1.0, shrinkB=3),
+                bbox=dict(boxstyle="round,pad=0.15", fc="white",
+                          ec=arrowcolor, alpha=0.9, lw=0.8),
+                zorder=10)
 
 
-# ===================================================================
-# Panel A -- Pipeline flow chart
-# ===================================================================
+def _draw_protein_blob(ax, cx, cy, rx, ry, color, alpha=0.3, lw=2):
+    """Draw an irregular protein-shaped blob using a deformed ellipse."""
+    theta = np.linspace(0, 2 * np.pi, 200)
+    # Add bumps to make it look organic
+    r_mod = (1.0
+             + 0.08 * np.sin(5 * theta)
+             + 0.05 * np.cos(7 * theta)
+             + 0.04 * np.sin(11 * theta))
+    x = cx + rx * r_mod * np.cos(theta)
+    y = cy + ry * r_mod * np.sin(theta)
+    ax.fill(x, y, color=color, alpha=alpha, zorder=2)
+    ax.plot(x, y, color=color, lw=lw, alpha=0.7, zorder=3)
+
+
+def _draw_helix(ax, x0, y0, length, angle=0, color="#4488cc", lw=2):
+    """Draw a cartoon alpha helix as a wavy ribbon."""
+    t = np.linspace(0, length, 100)
+    amp = 0.12
+    freq = 8
+    # Ribbon edges
+    x1 = x0 + t * np.cos(angle) - amp * np.sin(freq * t) * np.sin(angle)
+    y1 = y0 + t * np.sin(angle) + amp * np.sin(freq * t) * np.cos(angle)
+    x2 = x0 + t * np.cos(angle) + amp * np.sin(freq * t) * np.sin(angle)
+    y2 = y0 + t * np.sin(angle) - amp * np.sin(freq * t) * np.cos(angle)
+    ax.fill_between(x1, y1, y2, alpha=0.5, color=color, zorder=4)
+    ax.plot(x1, y1, color=color, lw=lw, alpha=0.8, zorder=5)
+    ax.plot(x2, y2, color=color, lw=lw * 0.6, alpha=0.5, zorder=5)
+
+
+def _draw_beta_strand(ax, x0, y0, length, angle=0, color="#4488cc", lw=1.5):
+    """Draw a cartoon beta strand as a flat arrow."""
+    dx = length * np.cos(angle)
+    dy = length * np.sin(angle)
+    w = 0.08
+    # Arrow body
+    nx, ny = -np.sin(angle) * w, np.cos(angle) * w
+    body = plt.Polygon([
+        (x0 + nx, y0 + ny),
+        (x0 + dx * 0.7 + nx, y0 + dy * 0.7 + ny),
+        (x0 + dx * 0.7 + nx * 2, y0 + dy * 0.7 + ny * 2),
+        (x0 + dx, y0 + dy),
+        (x0 + dx * 0.7 - nx * 2, y0 + dy * 0.7 - ny * 2),
+        (x0 + dx * 0.7 - nx, y0 + dy * 0.7 - ny),
+        (x0 - nx, y0 - ny),
+    ], closed=True, fc=color, ec=color, alpha=0.6, lw=lw, zorder=4)
+    ax.add_patch(body)
+
+
+def _draw_dna_quadruplex(ax, cx, cy, size=0.5, color=DNA_CLR):
+    """Draw a G-quadruplex as four stacked squares with connecting lines."""
+    offsets = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    s = size * 0.3
+    layers = 3
+    for layer in range(layers):
+        ly = cy + (layer - 1) * size * 0.35
+        for ox, oy in offsets:
+            x = cx + ox * s
+            y = ly + oy * s * 0.3
+            rect = plt.Rectangle((x - s * 0.3, y - s * 0.15), s * 0.6, s * 0.3,
+                                  fc=color, ec="0.3", lw=0.8, alpha=0.6, zorder=5)
+            ax.add_patch(rect)
+        # Connect corners
+        for i in range(4):
+            j = (i + 1) % 4
+            ax.plot([cx + offsets[i][0] * s, cx + offsets[j][0] * s],
+                    [ly + offsets[i][1] * s * 0.3, ly + offsets[j][1] * s * 0.3],
+                    color=color, lw=0.8, alpha=0.5, zorder=4)
+
+
+def _draw_ions(ax, positions, color=ION_CLR, size=0.06):
+    """Draw K+ ions as small spheres."""
+    for x, y in positions:
+        circle = Circle((x, y), size, fc=color, ec="0.3", lw=0.6,
+                        alpha=0.8, zorder=6)
+        ax.add_patch(circle)
+        ax.text(x, y, "K\u207a", ha="center", va="center", fontsize=4,
+                color="white", fontweight="bold", zorder=7)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Panel A: Holo structure with annotated metrics
+# ═══════════════════════════════════════════════════════════════════
 def draw_panel_a(ax):
-    ax.set_xlim(0, 16)
-    ax.set_ylim(0, 3.6)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 8)
     ax.axis("off")
 
-    # -- label --
-    ax.text(0.15, 3.4, "A", fontsize=18, fontweight="bold", va="top")
-    ax.text(1.0, 3.4, "G4FP Design Pipeline Overview", fontsize=13,
+    ax.text(0.2, 7.7, "A", fontsize=20, fontweight="bold", va="top")
+    ax.text(0.9, 7.7, "Holo Structure (Bound State)", fontsize=14,
             va="top", fontstyle="italic", color="0.25")
 
-    bw, bh = 2.0, 1.05  # box width / height
-    y_mid = 1.55
+    # Draw protein blob
+    pcx, pcy = 4.0, 4.2
+    _draw_protein_blob(ax, pcx, pcy, 2.2, 2.0, HOLO_CLR, alpha=0.15)
 
-    # Stage positions (evenly spaced)
-    xs = np.linspace(1.3, 14.7, 6)
+    # Draw secondary structure elements inside
+    _draw_helix(ax, 2.5, 5.0, 1.5, angle=0.3, color=HOLO_CLR)
+    _draw_helix(ax, 3.0, 3.2, 1.2, angle=-0.2, color=HOLO_CLR)
+    _draw_beta_strand(ax, 4.5, 5.2, 1.0, angle=-0.5, color=HOLO_CLR)
+    _draw_beta_strand(ax, 4.8, 3.8, 0.9, angle=0.4, color=HOLO_CLR)
+    _draw_beta_strand(ax, 3.8, 4.5, 0.8, angle=-0.1, color=HOLO_CLR)
 
-    stages = [
-        ("Template PDBs\n(10 structures)", STAGE_COLORS["input"]),
-        ("LigandMPNN\n(10K designs\nper template)",  STAGE_COLORS["design"]),
-        ("Filter top 1%\n(100 per\ntemplate)",        STAGE_COLORS["filter"]),
-        ("AlphaFold 3\n(bound + apo\n5 seeds each)", STAGE_COLORS["predict"]),
-        ("Structure\nAnalysis\n(steps 05-06)",        STAGE_COLORS["analyse"]),
-        ("Ranking &\nSelection\n(step 07)",           STAGE_COLORS["rank"]),
-    ]
+    # Chromophore (TYG) highlighted region
+    chrom_cx, chrom_cy = 4.2, 4.3
+    chrom = FancyBboxPatch((chrom_cx - 0.3, chrom_cy - 0.2), 0.6, 0.4,
+                            boxstyle="round,pad=0.05",
+                            fc=CHROM_CLR, ec="#b45309", lw=1.5,
+                            alpha=0.9, zorder=6)
+    ax.add_patch(chrom)
+    ax.text(chrom_cx, chrom_cy, "TYG", ha="center", va="center",
+            fontsize=6, fontweight="bold", color="#78350f", zorder=7)
 
-    centres = []
-    for i, (label, clr) in enumerate(stages):
-        c = _box(ax, xs[i], y_mid, bw, bh, label, clr, fontsize=8.5)
-        centres.append(c)
+    # G-quadruplex DNA
+    dna_cx, dna_cy = 6.2, 4.5
+    _draw_dna_quadruplex(ax, dna_cx, dna_cy, size=0.7, color=DNA_CLR)
+    ax.text(dna_cx, dna_cy - 0.8, "G4-DNA", ha="center", fontsize=7,
+            color=DNA_CLR, fontweight="bold")
 
-    # Arrows between consecutive boxes
-    for i in range(len(centres) - 1):
-        _arrow(ax, (centres[i][0] + bw / 2, y_mid),
-               (centres[i + 1][0] - bw / 2, y_mid),
-               shrinkA=2, shrinkB=2, lw=2.2, style="-|>")
+    # K+ ions
+    _draw_ions(ax, [(dna_cx, dna_cy - 0.15), (dna_cx, dna_cy + 0.15),
+                    (dna_cx, dna_cy + 0.45)])
 
-    # Numeric counts below arrow midpoints
-    counts = ["100K total", "1,000 total", "2,000 jobs", "metrics + SD", "top 100-150"]
-    for i, txt in enumerate(counts):
-        mx = (xs[i] + xs[i + 1]) / 2
-        ax.text(mx, y_mid - 0.72, txt, ha="center", va="top",
-                fontsize=7.5, color="0.4", fontstyle="italic")
+    # Interface region
+    ax.annotate("", xy=(5.6, 4.5), xytext=(5.0, 4.5),
+                arrowprops=dict(arrowstyle="<->", color="0.4", lw=1.2))
+
+    # ── Metric callouts ──
+    _callout(ax, "pLDDT\n(per-residue\nconfidence)",
+             (2.8, 5.3), (0.3, 6.8), fontsize=7)
+    _callout(ax, "pTM\n(fold quality\nTM-score)",
+             (3.5, 2.8), (0.3, 1.5), fontsize=7)
+    _callout(ax, "iPTM\n(protein\u2013DNA\ninterface)",
+             (5.3, 4.5), (7.5, 6.8), fontsize=7)
+    _callout(ax, "Chromophore\npLDDT (TYG\nresidues 197-199)",
+             (chrom_cx + 0.3, chrom_cy + 0.2), (7.5, 5.3), fontsize=7,
+             color="#b45309")
+    _callout(ax, "Fraction\ndisordered",
+             (2.5, 3.5), (0.3, 2.8), fontsize=7)
+
+    # SD note
+    ax.text(5.0, 0.5, "All metrics computed across\n25 AF3 seed replicates\n"
+            "\u2192 mean \u00b1 SD per design",
+            ha="center", va="center", fontsize=8, color="0.35",
+            fontstyle="italic",
+            bbox=dict(boxstyle="round,pad=0.3", fc=LIGHT_BLUE,
+                      ec="0.7", alpha=0.7))
 
 
-# ===================================================================
-# Panel B -- Structure comparison schematic
-# ===================================================================
+# ═══════════════════════════════════════════════════════════════════
+# Panel B: Holo vs Apo comparison
+# ═══════════════════════════════════════════════════════════════════
 def draw_panel_b(ax):
-    ax.set_xlim(0, 8)
-    ax.set_ylim(0, 7)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 8)
     ax.axis("off")
 
-    ax.text(0.15, 6.85, "B", fontsize=18, fontweight="bold", va="top")
-    ax.text(0.85, 6.85, "Structural Metrics", fontsize=13, va="top",
-            fontstyle="italic", color="0.25")
+    ax.text(0.2, 7.7, "B", fontsize=20, fontweight="bold", va="top")
+    ax.text(0.9, 7.7, "Holo vs Apo Comparison", fontsize=14,
+            va="top", fontstyle="italic", color="0.25")
 
-    # -- Holo / Apo protein schematics --
-    # Holo (left)
-    holo_cx, holo_cy = 2.2, 4.7
-    _box(ax, holo_cx, holo_cy, 3.0, 1.4, "", HOLO_CLR, alpha=0.15,
-         lw=1.5, style="round,pad=0.12")
-    ax.text(holo_cx, holo_cy + 0.42, "Holo structure", ha="center",
-            fontsize=9.5, fontweight="bold", color=HOLO_CLR)
-    ax.text(holo_cx, holo_cy - 0.05, "(protein + G4-DNA)", ha="center",
-            fontsize=8, color="0.35")
+    # ── Holo (left) ──
+    hcx, hcy = 2.5, 5.0
+    _draw_protein_blob(ax, hcx, hcy, 1.3, 1.2, HOLO_CLR, alpha=0.15)
+    _draw_helix(ax, 1.8, 5.3, 0.8, angle=0.2, color=HOLO_CLR)
+    _draw_beta_strand(ax, 2.5, 4.6, 0.6, angle=-0.3, color=HOLO_CLR)
 
-    # Apo (right)
-    apo_cx, apo_cy = 6.0, 4.7
-    _box(ax, apo_cx, apo_cy, 3.0, 1.4, "", APO_CLR, alpha=0.15,
-         lw=1.5, style="round,pad=0.12")
-    ax.text(apo_cx, apo_cy + 0.42, "Apo structure", ha="center",
-            fontsize=9.5, fontweight="bold", color=APO_CLR)
-    ax.text(apo_cx, apo_cy - 0.05, "(protein only)", ha="center",
-            fontsize=8, color="0.35")
+    # G4 DNA next to holo
+    _draw_dna_quadruplex(ax, 3.7, 5.2, size=0.4, color=DNA_CLR)
 
-    # Double-headed arrow between holo and apo
-    _arrow(ax, (holo_cx + 1.5, holo_cy), (apo_cx - 1.5, holo_cy),
-           color="0.3", lw=1.8, style="<|-|>", shrinkA=4, shrinkB=4)
-    ax.text((holo_cx + apo_cx) / 2, holo_cy + 0.22, "compare",
-            ha="center", va="bottom", fontsize=7.5, fontstyle="italic",
+    # Chromophore
+    chrom_h = FancyBboxPatch((hcx - 0.15, hcy - 0.12), 0.3, 0.24,
+                              boxstyle="round,pad=0.03",
+                              fc=CHROM_CLR, ec="#b45309", lw=1, alpha=0.9, zorder=6)
+    ax.add_patch(chrom_h)
+
+    ax.text(hcx, 3.5, "HOLO\n(+ G4-DNA)", ha="center", fontsize=9,
+            fontweight="bold", color=HOLO_CLR)
+
+    # ── Apo (right) ──
+    acx, acy = 7.5, 5.0
+    _draw_protein_blob(ax, acx, acy, 1.3, 1.2, APO_CLR, alpha=0.15)
+    # Apo is slightly unfolded — offset helices
+    _draw_helix(ax, 6.9, 5.4, 0.7, angle=0.4, color=APO_CLR)
+    _draw_beta_strand(ax, 7.6, 4.5, 0.5, angle=-0.1, color=APO_CLR)
+
+    # Chromophore (dimmer in apo)
+    chrom_a = FancyBboxPatch((acx - 0.15, acy - 0.12), 0.3, 0.24,
+                              boxstyle="round,pad=0.03",
+                              fc=CHROM_CLR, ec="#b45309", lw=1, alpha=0.4, zorder=6)
+    ax.add_patch(chrom_a)
+
+    ax.text(acx, 3.5, "APO\n(no DNA)", ha="center", fontsize=9,
+            fontweight="bold", color=APO_CLR)
+
+    # ── Comparison arrows ──
+    mid_x = 5.0
+    _arrow(ax, (3.9, 5.0), (6.1, 5.0), color="0.3", lw=2.5,
+           style="<|-|>", shrinkA=15, shrinkB=15)
+
+    # RMSD label
+    ax.text(mid_x, 5.35, "Global RMSD", ha="center", fontsize=8,
+            fontweight="bold", color=METRIC_CLR)
+    ax.text(mid_x, 5.05, "(C\u03b1 backbone)", ha="center", fontsize=7,
             color="0.4")
 
-    # -- Metrics table --
-    metrics_y = 3.2
-    ax.text(0.4, metrics_y, "Metrics computed per design (5 AF3 seeds):",
-            fontsize=9, fontweight="bold", color="0.2")
+    # ── What we're looking for ──
+    goal_y = 2.2
+    goal_box = FancyBboxPatch((0.5, goal_y - 0.8), 9.0, 1.6,
+                               boxstyle="round,pad=0.15",
+                               fc=LIGHT_GREEN, ec="#16a34a", lw=1.5,
+                               zorder=2)
+    ax.add_patch(goal_box)
+    ax.text(5.0, goal_y + 0.55, "Design Goal: G4-dependent folding",
+            ha="center", fontsize=10, fontweight="bold", color="#15803d", zorder=3)
 
-    metric_rows = [
-        ("Global RMSD",           "holo vs apo backbone C\u03b1 overlay"),
-        ("Chromophore RMSD",      "TYG region (auto-detected position)"),
-        ("Mean pLDDT",            "per-residue confidence (holo & apo)"),
-        ("Chromophore pLDDT",     "TYG pLDDT in holo vs apo"),
-        ("pTM",                   "predicted TM-score (fold quality)"),
-        ("iPTM",                  "interface TM-score (protein\u2013DNA)"),
-        ("Fraction disordered",   "from AF3 summary_confidences.json"),
-        ("Standard deviation",    "across 5 seeds (reproducibility)"),
+    goals = [
+        "\u2713  High holo pLDDT + pTM  (folds well with G4-DNA)",
+        "\u2713  Low apo pLDDT  (disordered without G4-DNA)",
+        "\u2713  Large RMSD between holo and apo  (structural switch)",
+        "\u2713  High chromophore pLDDT in holo  (fluorescent when bound)",
     ]
-
-    for j, (name, desc) in enumerate(metric_rows):
-        yy = metrics_y - 0.34 * (j + 1)
-        ax.plot(0.55, yy, marker="s", markersize=4.5,
-                color=STAGE_COLORS["analyse"], clip_on=False)
-        ax.text(0.80, yy, name, fontsize=8, fontweight="bold", va="center",
-                color="0.15")
-        ax.text(3.4, yy, desc, fontsize=7.5, va="center", color="0.4")
-
-    # -- Chromophore callout box --
-    chrom_y = 0.35
-    chrom_box = FancyBboxPatch(
-        (0.3, chrom_y - 0.25), 7.3, 0.55,
-        boxstyle="round,pad=0.1",
-        facecolor="#fef3c7", edgecolor="#d97706", linewidth=1.2,
-        zorder=3,
-    )
-    ax.add_patch(chrom_box)
-    ax.text(4.0, chrom_y, "Chromophore (TYG) position auto-detected per template "
-            "from LigandMPNN reference FASTA  (residues ~160\u2013172)",
-            ha="center", va="center", fontsize=7.5, color="#92400e", zorder=4)
+    for j, txt in enumerate(goals):
+        ax.text(1.0, goal_y + 0.15 - 0.32 * j, txt, fontsize=7.5,
+                color="#166534", va="center", zorder=3)
 
 
-# ===================================================================
-# Panel C -- Selection strategy
-# ===================================================================
+# ═══════════════════════════════════════════════════════════════════
+# Panel C: Pareto frontier cartoon
+# ═══════════════════════════════════════════════════════════════════
 def draw_panel_c(ax):
-    ax.set_xlim(0, 8)
-    ax.set_ylim(0, 7)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 8)
     ax.axis("off")
 
-    ax.text(0.15, 6.85, "C", fontsize=18, fontweight="bold", va="top")
-    ax.text(0.85, 6.85, "Selection Strategy", fontsize=13, va="top",
-            fontstyle="italic", color="0.25")
+    ax.text(0.2, 7.7, "C", fontsize=20, fontweight="bold", va="top")
+    ax.text(0.9, 7.7, "Pareto Frontier (3 Objectives)", fontsize=14,
+            va="top", fontstyle="italic", color="0.25")
 
-    # -- Three selection paths --
-    path_y = 5.65
-    path_h = 0.80
+    # Draw a fake scatter plot with Pareto frontier
+    plot_ax = ax.inset_axes([0.1, 0.35, 0.55, 0.55])
+    np.random.seed(42)
 
-    # Path 1: Top 10 per template
-    _box(ax, 2.0, path_y, 3.3, path_h,
-         "Top 10 per template\n(100 designs)", STAGE_COLORS["input"],
-         fontsize=8.5)
+    # Random designs
+    n = 80
+    x = np.random.beta(2, 5, n) * 0.8 + 0.1
+    y = np.random.beta(2, 5, n) * 0.8 + 0.1
 
-    # Path 2: Top 50 global
-    _box(ax, 6.0, path_y, 3.3, path_h,
-         "Top 50 global\n(by fitness score)", STAGE_COLORS["design"],
-         fontsize=8.5)
+    # Pareto front (upper-right corner)
+    px = np.array([0.95, 0.85, 0.72, 0.55, 0.40, 0.30])
+    py = np.array([0.30, 0.55, 0.70, 0.82, 0.88, 0.95])
 
-    # Union arrow
-    _arrow(ax, (2.0, path_y - path_h / 2), (4.0, path_y - 1.3),
-           color="0.4", lw=1.5, style="-|>",
-           connectionstyle="arc3,rad=-0.15", shrinkA=6, shrinkB=6)
-    _arrow(ax, (6.0, path_y - path_h / 2), (4.0, path_y - 1.3),
-           color="0.4", lw=1.5, style="-|>",
-           connectionstyle="arc3,rad=0.15", shrinkA=6, shrinkB=6)
+    plot_ax.scatter(x, y, s=15, c="0.65", alpha=0.5, zorder=2,
+                    label="All designs")
+    plot_ax.scatter(px, py, s=60, c=PARETO_CLR, marker="*", edgecolors="0.2",
+                    linewidths=0.5, zorder=5, label="Pareto-optimal")
+    plot_ax.plot(px, py, color=PARETO_CLR, lw=1.5, ls="--", alpha=0.7, zorder=4)
 
-    # Union box
-    _box(ax, 4.0, path_y - 1.65, 3.0, 0.7,
-         "Union (~140 designs)", STAGE_COLORS["rank"],
-         fontsize=9)
+    # Fill the dominated region
+    fill_x = np.concatenate([[0], px, [0]])
+    fill_y = np.concatenate([[py[0]], py, [py[-1]]])
+    plot_ax.fill(fill_x, fill_y, color=PARETO_CLR, alpha=0.06)
 
-    # -- Pareto frontier --
-    pareto_y = 2.95
-    pareto_box = FancyBboxPatch(
-        (0.3, pareto_y - 0.55), 7.3, 1.1,
-        boxstyle="round,pad=0.12",
-        facecolor="#fee2e2", edgecolor=PARETO_CLR, linewidth=1.5,
-        zorder=2,
-    )
-    ax.add_patch(pareto_box)
-    ax.text(4.0, pareto_y + 0.35, "Pareto Frontier (3 objectives)",
-            ha="center", fontsize=10, fontweight="bold", color=PARETO_CLR,
-            zorder=3)
-    pareto_objs = [
-        ("iPTM",              "protein\u2013DNA interface quality"),
-        ("Chromophore pLDDT",  "TYG confidence in holo state"),
-        ("Global RMSD",        "holo vs apo structural change"),
+    plot_ax.set_xlabel("iPTM  \u2192", fontsize=8, color="0.3")
+    plot_ax.set_ylabel("Chromophore pLDDT  \u2192", fontsize=8, color="0.3")
+    plot_ax.set_xlim(0, 1.05)
+    plot_ax.set_ylim(0, 1.05)
+    plot_ax.set_xticks([])
+    plot_ax.set_yticks([])
+    plot_ax.spines['top'].set_visible(False)
+    plot_ax.spines['right'].set_visible(False)
+    plot_ax.legend(fontsize=6, loc="lower right")
+
+    ax.text(3.2, 7.0, "(cartoon — axes show\n2 of 3 objectives)",
+            fontsize=6, color="0.5", fontstyle="italic")
+
+    # Objective labels on the right
+    obj_x = 7.0
+    ax.text(obj_x, 6.5, "3 Objectives:", fontsize=10, fontweight="bold",
+            color=METRIC_CLR)
+
+    objectives = [
+        ("1. iPTM", "protein\u2013DNA\ninterface quality", HOLO_CLR),
+        ("2. Chromophore pLDDT", "TYG confidence\nin holo state", "#b45309"),
+        ("3. Global RMSD", "structural change\nholo \u2194 apo", "0.4"),
     ]
-    for j, (name, desc) in enumerate(pareto_objs):
-        yy = pareto_y - 0.04 - 0.27 * j
-        ax.text(1.0, yy, f"{j+1}. {name}", fontsize=8.5, fontweight="bold",
-                va="center", color="0.15", zorder=3)
-        ax.text(4.2, yy, desc, fontsize=7.5, va="center",
-                color="0.45", zorder=3)
+    for j, (name, desc, clr) in enumerate(objectives):
+        yy = 5.8 - j * 1.3
+        ax.plot(obj_x - 0.3, yy, marker="o", markersize=10, color=clr,
+                zorder=5)
+        ax.text(obj_x - 0.3, yy, str(j + 1), ha="center", va="center",
+                fontsize=7, color="white", fontweight="bold", zorder=6)
+        ax.text(obj_x + 0.1, yy + 0.15, name, fontsize=9, fontweight="bold",
+                color=clr, va="center")
+        ax.text(obj_x + 0.1, yy - 0.2, desc, fontsize=7, color="0.45",
+                va="top")
 
-    # -- Fitness function --
-    fit_y = 1.55
-    ax.text(0.4, fit_y, "Fitness score (weighted sum of normalised components):",
-            fontsize=9, fontweight="bold", color="0.2")
+    # Non-dominated explanation
+    ax.text(obj_x, 2.2,
+            "Pareto-optimal = not\ndominated on ALL 3\nobjectives simultaneously",
+            fontsize=7.5, color=PARETO_CLR, fontstyle="italic",
+            bbox=dict(boxstyle="round,pad=0.3", fc=LIGHT_RED,
+                      ec=PARETO_CLR, alpha=0.7, lw=1))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Panel D: Selection funnel
+# ═══════════════════════════════════════════════════════════════════
+def draw_panel_d(ax):
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 8)
+    ax.axis("off")
+
+    ax.text(0.2, 7.7, "D", fontsize=20, fontweight="bold", va="top")
+    ax.text(0.9, 7.7, "Design Selection & Ranking", fontsize=14,
+            va="top", fontstyle="italic", color="0.25")
+
+    # ── Funnel stages ──
+    stages = [
+        ("100K sequences\n(LigandMPNN)", 8.0, "0.75", "white"),
+        ("1,000 filtered\n(top 1% confidence)", 6.5, "#4e79a7", "white"),
+        ("All 1,000 scored\n(fitness function)", 5.0, "#59a14f", "white"),
+    ]
+
+    for text, width, color, tc in stages:
+        idx = stages.index((text, width, color, tc))
+        y = 6.8 - idx * 1.3
+        _box(ax, 5.0, y, width, 0.85, text, color, fontsize=8.5,
+             text_color=tc, lw=1.5)
+        if idx < len(stages) - 1:
+            _arrow(ax, (5.0, y - 0.43), (5.0, y - 0.87),
+                   color="0.4", lw=2, style="-|>", shrinkA=2, shrinkB=2)
+
+    # ── Fitness function breakdown ──
+    fit_y = 3.0
+    ax.text(1.0, fit_y + 0.4, "Fitness Score (weighted sum):", fontsize=9,
+            fontweight="bold", color="0.2")
 
     weights = [
-        ("Chrom. holo pLDDT", 0.25, STAGE_COLORS["predict"]),
-        ("iPTM",              0.25, STAGE_COLORS["predict"]),
-        ("Global RMSD",       0.15, STAGE_COLORS["analyse"]),
-        ("Holo pTM",          0.15, STAGE_COLORS["analyse"]),
+        ("Chrom. holo pLDDT", 0.25, "#e15759"),
+        ("iPTM",              0.25, "#e15759"),
+        ("Global RMSD",       0.15, "#76b7b2"),
+        ("Holo pTM",          0.15, "#76b7b2"),
         ("Rel. apo pLDDT",    0.10, APO_CLR),
         ("Reproducibility",   0.05, "0.55"),
-        ("Chrom. pLDDT diff", 0.05, "0.55"),
+        ("Chrom. diff",       0.05, "0.55"),
     ]
 
-    bar_x0, bar_w_total = 0.5, 6.8
-    bar_y, bar_h = 1.15, 0.30
+    bar_x0, bar_w = 1.0, 8.0
+    bar_y, bar_h = fit_y - 0.3, 0.35
     cum_x = bar_x0
     for name, w, clr in weights:
-        seg_w = bar_w_total * w
+        seg_w = bar_w * w
         rect = FancyBboxPatch(
             (cum_x, bar_y), seg_w, bar_h,
             boxstyle="square,pad=0",
             facecolor=clr, edgecolor="white", linewidth=0.8,
-            alpha=0.85, zorder=3,
-        )
+            alpha=0.85, zorder=3)
         ax.add_patch(rect)
-        # Label inside or below
         if w >= 0.12:
             ax.text(cum_x + seg_w / 2, bar_y + bar_h / 2,
-                    f"{name}\n{int(w*100)}%",
-                    ha="center", va="center", fontsize=6.5,
+                    f"{name}\n{int(w * 100)}%",
+                    ha="center", va="center", fontsize=6,
                     color="white", fontweight="bold", zorder=4)
         else:
             ax.text(cum_x + seg_w / 2, bar_y - 0.08,
-                    f"{name} {int(w*100)}%",
-                    ha="center", va="top", fontsize=5.8,
-                    color="0.3", zorder=4, rotation=0)
+                    f"{name} {int(w * 100)}%",
+                    ha="center", va="top", fontsize=5.5, color="0.3", zorder=4)
         cum_x += seg_w
 
-    # Hard-filter footnote
-    ax.text(0.4, 0.30,
+    # ── Selection outputs ──
+    out_y = 1.5
+    _arrow(ax, (5.0, fit_y - 0.7), (5.0, out_y + 0.55),
+           color="0.4", lw=2, style="-|>", shrinkA=2, shrinkB=2)
+
+    # Three output boxes
+    boxes = [
+        (2.0, out_y, "Top 10 per\ntemplate\n(100 total)", "#4e79a7"),
+        (5.0, out_y, "Top 50\nglobal\n(by fitness)", "#59a14f"),
+        (8.0, out_y, "Pareto\nfrontier\n(~30-40)", PARETO_CLR),
+    ]
+    for bx, by, txt, clr in boxes:
+        _box(ax, bx, by, 2.5, 0.9, txt, clr, fontsize=7.5, lw=1.5)
+
+    # Hard filter note
+    ax.text(5.0, 0.3,
             "Hard filters:  holo pLDDT \u2265 70  |  holo pTM \u2265 0.5  "
             "|  holo iPTM \u2265 0.3",
-            fontsize=7.5, color="0.45", fontstyle="italic")
+            ha="center", fontsize=7, color="0.45", fontstyle="italic")
 
 
-# ===================================================================
-# Main: compose panels
-# ===================================================================
+# ═══════════════════════════════════════════════════════════════════
+# Main: compose 2x2 panels
+# ═══════════════════════════════════════════════════════════════════
 def main():
-    fig = plt.figure(figsize=(16, 10), facecolor=BG_CLR)
+    fig = plt.figure(figsize=(18, 14), facecolor=BG_CLR)
 
-    # Panel A: top row, full width
-    ax_a = fig.add_axes([0.02, 0.68, 0.96, 0.30])   # [left, bottom, w, h]
-
-    # Panel B: bottom-left
-    ax_b = fig.add_axes([0.02, 0.02, 0.48, 0.64])
-
-    # Panel C: bottom-right
-    ax_c = fig.add_axes([0.52, 0.02, 0.46, 0.64])
+    # 2x2 grid
+    ax_a = fig.add_axes([0.01, 0.52, 0.48, 0.46])
+    ax_b = fig.add_axes([0.51, 0.52, 0.48, 0.46])
+    ax_c = fig.add_axes([0.01, 0.02, 0.48, 0.48])
+    ax_d = fig.add_axes([0.51, 0.02, 0.48, 0.48])
 
     draw_panel_a(ax_a)
     draw_panel_b(ax_b)
     draw_panel_c(ax_c)
+    draw_panel_d(ax_d)
 
-    # Light horizontal separator between top and bottom rows
-    fig.patches.append(mpatches.FancyBboxPatch(
-        (0.02, 0.665), 0.96, 0.003,
-        boxstyle="square,pad=0", facecolor="0.80",
-        transform=fig.transFigure, zorder=0,
-    ))
+    # Separators
+    for y in [0.51]:
+        fig.patches.append(mpatches.FancyBboxPatch(
+            (0.02, y), 0.96, 0.002,
+            boxstyle="square,pad=0", facecolor="0.82",
+            transform=fig.transFigure, zorder=0))
+    for x in [0.50]:
+        fig.patches.append(mpatches.FancyBboxPatch(
+            (x, 0.03), 0.002, 0.94,
+            boxstyle="square,pad=0", facecolor="0.82",
+            transform=fig.transFigure, zorder=0))
 
-    out_path = Path(__file__).resolve().parent / "07_results" / "pipeline_overview.png"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=300, bbox_inches="tight",
+    out_dir = Path(__file__).resolve().parent / "07_results"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    png_path = out_dir / "pipeline_overview.png"
+    svg_path = out_dir / "pipeline_overview.svg"
+    fig.savefig(png_path, dpi=300, bbox_inches="tight",
+                facecolor=BG_CLR, edgecolor="none")
+    fig.savefig(svg_path, bbox_inches="tight",
                 facecolor=BG_CLR, edgecolor="none")
     plt.close(fig)
-    print(f"Saved  {out_path}  ({out_path.stat().st_size / 1024:.0f} KB)")
+    print(f"Saved {png_path} ({png_path.stat().st_size / 1024:.0f} KB)")
+    print(f"Saved {svg_path}")
 
 
 if __name__ == "__main__":
