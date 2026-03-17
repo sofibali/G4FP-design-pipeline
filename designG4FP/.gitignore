@@ -1,24 +1,3 @@
-# Bulk LigandMPNN outputs (~2GB per structure, 20GB total)
-output_G4FP_*/01_ligandmpnn/
-
-# AF3 prediction outputs (large when populated)
-output_G4FP_*/03_alphafold3_predictions_*/
-
-# Analysis outputs (regenerable from predictions)
-output_G4FP_*/04a_ligandmpnn_analysis/
-output_G4FP_*/05_structure_analysis/
-output_G4FP_*/06_ligand_state_comparison/
-
-# Aggregated results (regenerable)
-07_results/
-08_synthesis_order/
-
-# Temp files and logs
+# Temp files and caches (pipeline-specific rules in root .gitignore)
 _temp_*.yaml
-*.log
 __pycache__/
-
-# AF3 batch temp directories
-.af3_batch_gpu*/
-.inference_output_gpu*/
-.jax_cache/
