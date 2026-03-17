@@ -243,101 +243,6 @@ class LigandStateComparator:
         else:
             self.chromophore_range = detect_chromophore_range(self.output_dir)
 
-        # Load template AF3 replicate CA atoms for RMSD-vs-template
-        self.template_holo_ca_list = []
-        self.template_apo_ca_list = []
-        self._load_template_replicates()
-
-    def _load_template_replicates(self):
-        """Load CA atoms from template AF3 replicates for both states."""
-        base_dir = self.output_dir.parent  # designG4FP dir
-        tpl_af3_dir = base_dir / "template_af3_outputs"
-        if not tpl_af3_dir.exists():
-            return
-
-        tpl_name = self.template_name
-        for state, disk_state, ca_list in [
-            ('holo', 'bound', self.template_holo_ca_list),
-            ('apo', 'apo', self.template_apo_ca_list),
-        ]:
-            af3_name = f"template_{tpl_name}_{disk_state}"
-            af3_base = tpl_af3_dir / disk_state / af3_name
-            if not af3_base.exists():
-                continue
-            result_dir = find_af3_result_dir(af3_base)
-            if result_dir is None:
-                continue
-            seed_dirs = discover_seed_sample_dirs(result_dir)
-            for _s, _sa, sd in seed_dirs:
-                model_cif = sd / 'model.cif'
-                if not model_cif.exists():
-                    continue
-                try:
-                    struct = self._load_structure(model_cif)
-                    ca_atoms = self._extract_ca_atoms(struct, 'A')
-                    if len(ca_atoms) >= 10:
-                        ca_list.append(ca_atoms)
-                except Exception:
-                    continue
-
-        if self.template_holo_ca_list or self.template_apo_ca_list:
-            print(f"  Loaded template replicates: "
-                  f"{len(self.template_holo_ca_list)} holo, "
-                  f"{len(self.template_apo_ca_list)} apo")
-
-    def _compute_rmsd_vs_template(self, design_seed_dir: Path,
-                                  state: str) -> Dict[str, float]:
-        """Compute RMSD of a design seed against all template replicates.
-
-        Returns dict with template_global_rmsd (mean across replicates)
-        and template_chromophore_rmsd.
-        """
-        ca_list = (self.template_holo_ca_list if state == 'holo'
-                   else self.template_apo_ca_list)
-        if not ca_list:
-            return {}
-
-        model_cif = design_seed_dir / 'model.cif'
-        if not model_cif.exists():
-            return {}
-
-        try:
-            struct = self._load_structure(model_cif)
-            design_ca = self._extract_ca_atoms(struct, 'A')
-            if len(design_ca) < 10:
-                return {}
-        except Exception:
-            return {}
-
-        global_rmsds = []
-        chrom_rmsds = []
-        cs, ce = self.chromophore_range
-
-        for tpl_ca in ca_list:
-            min_len = min(len(design_ca), len(tpl_ca))
-            if min_len < 10:
-                continue
-            d_ca = design_ca[:min_len]
-            t_ca = tpl_ca[:min_len]
-            try:
-                sup = Superimposer()
-                sup.set_atoms(t_ca, d_ca)
-                global_rmsds.append(sup.rms)
-
-                if min_len >= ce:
-                    sup_c = Superimposer()
-                    sup_c.set_atoms(t_ca[cs-1:ce], d_ca[cs-1:ce])
-                    chrom_rmsds.append(sup_c.rms)
-            except Exception:
-                continue
-
-        result = {}
-        if global_rmsds:
-            result['template_global_rmsd'] = float(np.mean(global_rmsds))
-        if chrom_rmsds:
-            result['template_chromophore_rmsd'] = float(np.mean(chrom_rmsds))
-        return result
-
     def _load_structure(self, filepath: Path):
         if filepath.suffix == '.pdb':
             return self.pdb_parser.get_structure('s', str(filepath))
@@ -565,45 +470,6 @@ class LigandStateComparator:
                 result['mean_per_res_rmsd'] = result['global_rmsd']
                 result['max_per_res_rmsd'] = float(np.max(rmsds))
 
-        # RMSD vs template AF3 replicates
-        if self.template_holo_ca_list or self.template_apo_ca_list:
-            for state, seed_list, prefix in [
-                ('holo', holo_seeds, 'holo_template'),
-                ('apo', apo_seeds, 'apo_template'),
-            ]:
-                global_vals = []
-                chrom_vals = []
-                for _s, _sa, sd in seed_list:
-                    tpl_rmsd = self._compute_rmsd_vs_template(sd, state)
-                    if 'template_global_rmsd' in tpl_rmsd:
-                        global_vals.append(tpl_rmsd['template_global_rmsd'])
-                    if 'template_chromophore_rmsd' in tpl_rmsd:
-                        chrom_vals.append(tpl_rmsd['template_chromophore_rmsd'])
-
-                if global_vals:
-                    result[f'{prefix}_rmsd'] = float(np.mean(global_vals))
-                    result[f'{prefix}_rmsd_sd'] = (
-                        float(np.std(global_vals)) if len(global_vals) > 1
-                        else 0.0)
-                if chrom_vals:
-                    result[f'{prefix}_chromophore_rmsd'] = float(
-                        np.mean(chrom_vals))
-                    result[f'{prefix}_chromophore_rmsd_sd'] = (
-                        float(np.std(chrom_vals)) if len(chrom_vals) > 1
-                        else 0.0)
-
-            # Difference: holo - apo template RMSD
-            if ('holo_template_rmsd' in result
-                    and 'apo_template_rmsd' in result):
-                result['template_rmsd_diff'] = (
-                    result['holo_template_rmsd']
-                    - result['apo_template_rmsd'])
-            if ('holo_template_chromophore_rmsd' in result
-                    and 'apo_template_chromophore_rmsd' in result):
-                result['template_chromophore_rmsd_diff'] = (
-                    result['holo_template_chromophore_rmsd']
-                    - result['apo_template_chromophore_rmsd'])
-
         return result
 
     def _compare_top_level(self, seq_id: int,
@@ -665,6 +531,48 @@ class LigandStateComparator:
 
         return result
 
+    def _compare_template_replicates(self) -> Optional[Dict]:
+        """Process template AF3 predictions (holo+apo) as a pseudo-design.
+
+        Runs the same seed-by-seed analysis as for designs, so the template
+        appears alongside designs in all plots, showing the baseline sampling
+        range of the original sequence.
+        """
+        base_dir = self.output_dir.parent
+        tpl_af3_dir = base_dir / "template_af3_outputs"
+        if not tpl_af3_dir.exists():
+            return None
+
+        tpl_name = self.template_name
+        holo_dir = apo_dir = None
+
+        for disk_state, display_state in [('bound', 'holo'), ('apo', 'apo')]:
+            af3_name = f"template_{tpl_name}_{disk_state}"
+            af3_base = tpl_af3_dir / disk_state / af3_name
+            if not af3_base.exists():
+                return None
+            result_dir = find_af3_result_dir(af3_base)
+            if result_dir is None:
+                return None
+            if display_state == 'holo':
+                holo_dir = result_dir
+            else:
+                apo_dir = result_dir
+
+        if holo_dir is None or apo_dir is None:
+            return None
+
+        # Use compare_design_pair with seq_id=-1 as marker
+        result = self.compare_design_pair(-1, holo_dir, apo_dir)
+        if result and len(result) > 3:
+            result['seq_id'] = -1
+            result['is_template'] = True
+            result['global_id'] = f"TEMPLATE_{tpl_name}"
+            print(f"    Template {tpl_name}: {result.get('n_holo_seeds', 0)} holo, "
+                  f"{result.get('n_apo_seeds', 0)} apo seeds")
+            return result
+        return None
+
     def compare_all_designs(self) -> pd.DataFrame:
         holo_base = self.output_dir / "03_alphafold3_predictions_bound"
         apo_base = self.output_dir / "03_alphafold3_predictions_apo"
@@ -684,12 +592,20 @@ class LigandStateComparator:
               f"{len(apo_dirs)} apo, {n} matched pairs (x25 seeds)")
 
         results = []
+
+        # Process template AF3 replicates as a pseudo-design
+        tpl_result = self._compare_template_replicates()
+        if tpl_result:
+            results.append(tpl_result)
+
+        # Process actual designs
         for i, seq_id in enumerate(matched_ids, 1):
             if i % 25 == 0 or i == 1 or i == n:
                 print(f"    [{i}/{n}] design {seq_id}")
             r = self.compare_design_pair(seq_id, holo_dirs[seq_id],
                                          apo_dirs[seq_id])
             if r and len(r) > 3:
+                r['is_template'] = False
                 results.append(r)
 
         return pd.DataFrame(results)
@@ -736,6 +652,34 @@ def create_visualizations(df, template_df, output_dir):
     _plot_top20_heatmap(df, output_dir, csv_dir)
 
     print(f"\nAll plots saved to: {output_dir}")
+
+
+def _split_designs_templates(df):
+    """Split dataframe into design rows and template rows."""
+    if 'is_template' in df.columns:
+        tpl_mask = df['is_template'].fillna(False).astype(bool)
+        return df[~tpl_mask].copy(), df[tpl_mask].copy()
+    return df.copy(), pd.DataFrame()
+
+
+def _overlay_template_points(ax, df_tpl, x_col, y_col, color_map=None):
+    """Overlay template entries as large stars on a scatter plot."""
+    if df_tpl.empty:
+        return
+    for _, row in df_tpl.iterrows():
+        x = row.get(x_col)
+        y = row.get(y_col)
+        if pd.isna(x) or pd.isna(y):
+            continue
+        tpl = row.get('template', '')
+        short = tpl.replace('G4FP_', '')
+        color = color_map.get(tpl, 'black') if color_map else 'gold'
+        ax.scatter([x], [y], marker='*', s=300, color=color,
+                   edgecolors='black', linewidths=1.0, zorder=10,
+                   label=None)
+        ax.annotate(f'TPL_{short}', (x, y), fontsize=5,
+                    xytext=(4, 4), textcoords='offset points',
+                    fontweight='bold')
 
 
 def _plot_rmsd_distributions(df, template_df, output_dir, csv_dir):
@@ -799,17 +743,18 @@ def _plot_plddt_comparison(df, template_df, output_dir, csv_dir):
     if plot_df.empty:
         return
 
+    df_designs, df_tpl_rows = _split_designs_templates(plot_df)
     tpl_colors = _get_template_colors(template_df)
     fig, axes = plt.subplots(1, 3, figsize=(20, 6))
 
     # Left: scatter by template with error bars from 25 seeds
-    templates_in_data = sorted(plot_df['template'].unique())
+    templates_in_data = sorted(df_designs['template'].unique()) if not df_designs.empty else []
     holo_sd_col = 'holo_mean_plddt_sd'
     apo_sd_col = 'apo_mean_plddt_sd'
-    has_errorbars = (holo_sd_col in plot_df.columns and apo_sd_col in plot_df.columns
-                     and plot_df[holo_sd_col].notna().any())
+    has_errorbars = (holo_sd_col in df_designs.columns and apo_sd_col in df_designs.columns
+                     and df_designs[holo_sd_col].notna().any())
     for tpl in templates_in_data:
-        tdf = plot_df[plot_df['template'] == tpl]
+        tdf = df_designs[df_designs['template'] == tpl]
         short = tpl.replace('G4FP_', '')
         color = tpl_colors.get(tpl, 'steelblue')
         if has_errorbars:
@@ -830,10 +775,19 @@ def _plot_plddt_comparison(df, template_df, output_dir, csv_dir):
     lo, hi = all_vals.min() - 1, all_vals.max() + 1
     axes[0].plot([lo, hi], [lo, hi], 'k--', alpha=0.3, label='y=x')
 
-    # Template AF3 references (with error bars if AF3 available)
+    # Template entries from within the data (processed as pseudo-designs)
+    _overlay_template_points(axes[0], df_tpl_rows,
+                             'holo_mean_plddt', 'apo_mean_plddt',
+                             tpl_colors)
+
+    # Also overlay template_df references if available (legacy path)
     for _, row in template_df.iterrows():
-        short = row['template_name'].replace('G4FP_', '')
-        color = tpl_colors.get(row['template_name'], 'black')
+        tpl_name = row['template_name']
+        # Skip if already plotted from df_tpl_rows
+        if not df_tpl_rows.empty and tpl_name in df_tpl_rows['template'].values:
+            continue
+        short = tpl_name.replace('G4FP_', '')
+        color = tpl_colors.get(tpl_name, 'black')
         hp = row.get('holo_mean_plddt')
         ap = row.get('apo_mean_plddt')
         if pd.notna(hp) and pd.notna(ap):
@@ -1005,13 +959,16 @@ def _plot_rmsd_vs_plddt_change(df, template_df, output_dir, csv_dir):
 
     data = df.dropna(subset=['global_rmsd', 'mean_plddt_diff'])
     if len(data) > 0:
+        df_des, df_tpl = _split_designs_templates(data)
         # Left: by template
-        for tpl in sorted(data['template'].unique()):
-            tdf = data[data['template'] == tpl]
+        for tpl in sorted(df_des['template'].unique()) if not df_des.empty else []:
+            tdf = df_des[df_des['template'] == tpl]
             short = tpl.replace('G4FP_', '')
             color = tpl_colors.get(tpl, 'steelblue')
             axes[0].scatter(tdf['global_rmsd'], tdf['mean_plddt_diff'],
                             alpha=0.5, s=30, color=color, label=short)
+        _overlay_template_points(axes[0], df_tpl,
+                                 'global_rmsd', 'mean_plddt_diff', tpl_colors)
         axes[0].set_xlabel('Global RMSD (A)')
         axes[0].set_ylabel('pLDDT Diff (Holo - Apo)')
         axes[0].set_title('RMSD vs pLDDT Change')
