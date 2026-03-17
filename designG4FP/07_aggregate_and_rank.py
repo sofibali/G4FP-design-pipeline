@@ -1472,7 +1472,11 @@ Selection strategy:
 
     _save_pool(df_top10_per_tpl, "07_top10_per_template", results_dir)
     _save_pool(df_top50_global, "07_top50_global", results_dir)
-    _save_pool(df_selected, "07_final_candidates", results_dir)
+
+    # Save ALL scored designs ranked by fitness (not just the selected subset)
+    df_all_ranked = df.sort_values("fitness_score", ascending=False).reset_index(drop=True)
+    df_all_ranked["final_rank"] = range(1, len(df_all_ranked) + 1)
+    _save_pool(df_all_ranked, "07_final_candidates", results_dir)
 
     if not df_pareto.empty:
         pareto_export = [c for c in df_pareto.columns if "array" not in c]
@@ -1480,9 +1484,9 @@ Selection strategy:
             results_dir / "07_pareto_frontier.csv", index=False)
         print(f"  07_pareto_frontier.csv ({len(df_pareto)} designs)")
 
-    # Visualizations
+    # Visualizations — use all designs for plots, highlight selected subset
     print("\nGenerating plots...")
-    create_visualizations(df, df_selected, df_pareto, results_dir, template_df)
+    create_visualizations(df_all_ranked, df_selected, df_pareto, results_dir, template_df)
 
     # Summary
     print("\n" + "=" * 80)
@@ -1493,12 +1497,13 @@ Selection strategy:
     print(f"  Top 10 per template:     {len(df_top10_per_tpl)}")
     print(f"  Top 50 global:           {len(df_top50_global)}")
     print(f"  Combined selected:       {len(df_selected)}")
-    print(f"  Templates represented:   {df_selected['template'].nunique()}")
+    print(f"  All ranked designs:      {len(df_all_ranked)}")
+    print(f"  Templates represented:   {df_all_ranked['template'].nunique()}")
 
     print(f"\n  Output directory: {results_dir}/")
     print(f"    07_top10_per_template.csv  -- top 10 per template + FASTA")
     print(f"    07_top50_global.csv        -- top 50 by fitness + FASTA")
-    print(f"    07_final_candidates.csv    -- union of both pools")
+    print(f"    07_final_candidates.csv    -- ALL {len(df_all_ranked)} designs ranked")
     print(f"    07_pareto_frontier.csv     -- Pareto-optimal set")
     print(f"    07_selection_summary.png   -- overview plots")
     print(f"    07_top10_per_template_heatmap.png")
