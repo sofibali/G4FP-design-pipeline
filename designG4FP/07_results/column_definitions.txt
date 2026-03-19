@@ -1,0 +1,139 @@
+G4FP Design Pipeline - Column Definitions
+==========================================
+
+Columns in: 06_ligand_state_comparison_results.csv
+          and 07_final_candidates.csv
+
+
+IDENTIFIERS
+-----------
+seq_id                      Design sequence number within its template (0-99)
+template                    Template structure name (e.g. G4FP_des1_cro_mod0)
+global_id                   Unique ID: {template}_design_{seq_id} (07 only)
+is_template                 True if this row is the template sequence itself
+                            (processed as a pseudo-design for reference)
+
+
+SEED COUNTS
+-----------
+n_holo_seeds                Number of AF3 seed replicates analyzed for holo state (typ. 25)
+n_apo_seeds                 Number of AF3 seed replicates analyzed for apo state (typ. 25)
+
+
+HOLO (BOUND) STATE METRICS — mean across 25 seeds
+--------------------------------------------------
+holo_ptm                    Predicted TM-score: overall fold quality (0-1, higher = better fold)
+holo_ptm_sd                 Standard deviation of pTM across seeds
+holo_iptm                   Interface pTM: protein-DNA interface quality (0-1, higher = better binding)
+holo_iptm_sd                Standard deviation of iPTM across seeds
+holo_ranking_score          AF3 ranking score (composite confidence metric)
+holo_ranking_score_sd       SD of ranking score across seeds
+holo_fraction_disordered    Fraction of residues predicted disordered (0-1, lower = more ordered)
+holo_fraction_disordered_sd SD of fraction disordered across seeds
+holo_mean_plddt             Mean per-residue confidence (pLDDT) for chain A (0-100, higher = more confident)
+holo_mean_plddt_sd          SD of mean pLDDT across seeds
+holo_chromophore_plddt      Mean pLDDT of chromophore residues TYG (residues 197-199) in holo
+holo_chromophore_plddt_sd   SD of chromophore pLDDT across seeds
+holo_mean_pae               Mean predicted aligned error (lower = better, Angstroms)
+holo_mean_pae_sd            SD of mean PAE across seeds
+holo_interface_pae          Mean PAE between protein and DNA chains (lower = better interface)
+holo_interface_pae_sd       SD of interface PAE across seeds
+
+
+APO (UNBOUND) STATE METRICS — mean across 25 seeds
+---------------------------------------------------
+apo_ptm                     Predicted TM-score for apo (protein only, no DNA)
+apo_ptm_sd                  SD of apo pTM across seeds
+apo_ranking_score           AF3 ranking score for apo state
+apo_ranking_score_sd        SD of apo ranking score across seeds
+apo_fraction_disordered     Fraction disordered in apo (higher = more unfolded = good for switch)
+apo_fraction_disordered_sd  SD of apo fraction disordered across seeds
+apo_mean_plddt              Mean pLDDT in apo state (lower = less confident = good for switch)
+apo_mean_plddt_sd           SD of apo mean pLDDT across seeds
+apo_chromophore_plddt       Mean pLDDT of chromophore TYG in apo state
+apo_chromophore_plddt_sd    SD of apo chromophore pLDDT across seeds
+apo_mean_pae                Mean PAE in apo state
+apo_mean_pae_sd             SD of apo mean PAE across seeds
+
+
+BACKWARD-COMPATIBLE ALIASES
+----------------------------
+chromophore_holo_plddt      Same as holo_chromophore_plddt
+chromophore_holo_plddt_sd   Same as holo_chromophore_plddt_sd
+chromophore_apo_plddt       Same as apo_chromophore_plddt
+chromophore_apo_plddt_sd    Same as apo_chromophore_plddt_sd
+
+
+HOLO vs APO DIFFERENCES
+------------------------
+mean_plddt_diff             holo_mean_plddt - apo_mean_plddt
+                            Positive = holo more confident than apo (good)
+mean_plddt_diff_sd          Propagated SD: sqrt(holo_sd^2 + apo_sd^2)
+chromophore_plddt_diff      holo_chromophore_plddt - apo_chromophore_plddt
+                            Positive = chromophore more stable in holo (good)
+chromophore_plddt_diff_sd   Propagated SD of chromophore pLDDT difference
+pae_diff                    holo_mean_pae - apo_mean_pae
+pae_diff_sd                 Propagated SD of PAE difference
+
+
+STRUCTURAL COMPARISON (HOLO vs APO)
+------------------------------------
+global_rmsd                 Mean Calpha RMSD between matched holo-apo seed pairs (Angstroms)
+                            Higher = more structural change between bound/unbound (good)
+global_rmsd_sd              SD of global RMSD across matched seed pairs
+chromophore_rmsd             Mean RMSD of chromophore residues (197-199) between holo-apo pairs
+chromophore_rmsd_sd         SD of chromophore RMSD across matched seed pairs
+mean_per_res_rmsd           Same as global_rmsd (kept for compatibility)
+max_per_res_rmsd            Maximum RMSD observed across matched seed pairs
+
+
+SEQUENCE (07 only)
+------------------
+sequence                    Full protein sequence (with TYG chromophore inserted)
+
+
+RELATIVE APO STABILITY (07 only)
+---------------------------------
+apo_plddt_vs_template       Design apo pLDDT minus template apo pLDDT
+                            Negative = design is less stable than template in apo (good)
+                            Positive = design is more stable than template in apo (bad)
+
+
+FITNESS SCORE COMPONENTS (07 only) — each normalized 0-1
+--------------------------------------------------------
+score_component_chrom_holo  Normalized chromophore holo pLDDT (weight: 25%)
+                            Higher = chromophore more confident when bound
+score_component_iptm        Normalized iPTM (weight: 25%)
+                            Higher = better protein-DNA interface
+score_component_rmsd        Normalized global RMSD (weight: 15%)
+                            Higher = more structural change holo vs apo
+score_component_holo_ptm    Normalized holo pTM (weight: 15%)
+                            Higher = better overall fold quality
+score_component_rel_apo     Normalized relative apo pLDDT (weight: 10%, inverted)
+                            Higher score = lower apo stability vs template
+score_component_confidence  Normalized reproducibility penalty (weight: 5%)
+                            Higher = lower SD across seeds (more reproducible)
+score_component_chrom_diff  Normalized chromophore pLDDT difference (weight: 5%)
+                            Higher = bigger chromophore stability gain in holo
+
+fitness_score               Weighted sum of all components above (0-1)
+                            Higher = better G4FP candidate
+
+
+SELECTION FLAGS (07 only)
+-------------------------
+in_pareto                   True if design is on the Pareto frontier
+                            (non-dominated across iPTM, chromophore pLDDT, global RMSD)
+in_top10_per_tpl            True if design is in the top 10 for its template (by fitness)
+in_top50_global             True if design is in the top 50 overall (by fitness)
+final_rank                  Rank among all scored designs (1 = best fitness score)
+
+
+HARD FILTERS APPLIED BEFORE SELECTION (07)
+------------------------------------------
+Designs must pass all of:
+  - holo_mean_plddt >= 70
+  - holo_ptm >= 0.5
+  - holo_iptm >= 0.3
+Designs failing these are still in the CSV but excluded from
+top10/top50/Pareto selection pools.
