@@ -130,10 +130,18 @@ def find_af3_result_dir(base_dir: Path) -> Optional[Path]:
 
 
 def load_template_metrics(base_dir: Path, chromophore_range: Optional[Tuple[int, int]] = None) -> pd.DataFrame:
-    """Load template metrics from AF3 outputs if available, else B-factors.
+    """Load template metrics from pre-computed CSV or AF3 outputs.
 
-    If *chromophore_range* is None, auto-detect CRO position per template.
+    Priority:
+      1. template_af3_metrics.csv (from analyze_template_af3.py)
+      2. Scan template_af3_outputs/ + input PDB B-factors
     """
+    metrics_csv = base_dir / "template_af3_metrics.csv"
+    if metrics_csv.exists():
+        df = pd.read_csv(metrics_csv)
+        print(f"  Loaded {len(df)} template references from {metrics_csv.name}")
+        return df
+
     tpl_dir = base_dir / "template_af3_outputs"
     inputs_dir = base_dir / "inputs"
     pdb_parser = PDBParser(QUIET=True)

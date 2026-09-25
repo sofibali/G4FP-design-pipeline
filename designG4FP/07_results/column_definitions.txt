@@ -17,43 +17,73 @@ is_template                 True if this row is the template sequence itself
 SEED COUNTS
 -----------
 n_holo_seeds                Number of AF3 seed replicates analyzed for holo state (typ. 25)
+                            Units: count (dimensionless)
 n_apo_seeds                 Number of AF3 seed replicates analyzed for apo state (typ. 25)
+                            Units: count (dimensionless)
 
 
 HOLO (BOUND) STATE METRICS — mean across 25 seeds
 --------------------------------------------------
-holo_ptm                    Predicted TM-score: overall fold quality (0-1, higher = better fold)
+holo_ptm                    Predicted TM-score: overall fold quality
+                            Units: dimensionless (0-1, higher = better fold)
 holo_ptm_sd                 Standard deviation of pTM across seeds
-holo_iptm                   Interface pTM: protein-DNA interface quality (0-1, higher = better binding)
+                            Units: dimensionless
+holo_iptm                   Interface pTM: protein-DNA interface quality
+                            Units: dimensionless (0-1, higher = better binding)
 holo_iptm_sd                Standard deviation of iPTM across seeds
+                            Units: dimensionless
 holo_ranking_score          AF3 ranking score (composite confidence metric)
+                            Units: dimensionless (0-1)
 holo_ranking_score_sd       SD of ranking score across seeds
-holo_fraction_disordered    Fraction of residues predicted disordered (0-1, lower = more ordered)
+                            Units: dimensionless
+holo_fraction_disordered    Fraction of residues predicted disordered
+                            Units: dimensionless (0-1, lower = more ordered)
 holo_fraction_disordered_sd SD of fraction disordered across seeds
-holo_mean_plddt             Mean per-residue confidence (pLDDT) for chain A (0-100, higher = more confident)
+                            Units: dimensionless
+holo_mean_plddt             Mean per-residue confidence (pLDDT) for chain A
+                            Units: pLDDT score (0-100, higher = more confident)
 holo_mean_plddt_sd          SD of mean pLDDT across seeds
+                            Units: pLDDT score
 holo_chromophore_plddt      Mean pLDDT of chromophore residues TYG (residues 197-199) in holo
+                            Units: pLDDT score (0-100)
 holo_chromophore_plddt_sd   SD of chromophore pLDDT across seeds
-holo_mean_pae               Mean predicted aligned error (lower = better, Angstroms)
+                            Units: pLDDT score
+holo_mean_pae               Mean predicted aligned error
+                            Units: Angstroms (lower = better)
 holo_mean_pae_sd            SD of mean PAE across seeds
-holo_interface_pae          Mean PAE between protein and DNA chains (lower = better interface)
+                            Units: Angstroms
+holo_interface_pae          Mean PAE between protein and DNA chains
+                            Units: Angstroms (lower = better interface)
 holo_interface_pae_sd       SD of interface PAE across seeds
+                            Units: Angstroms
 
 
 APO (UNBOUND) STATE METRICS — mean across 25 seeds
 ---------------------------------------------------
 apo_ptm                     Predicted TM-score for apo (protein only, no DNA)
+                            Units: dimensionless (0-1)
 apo_ptm_sd                  SD of apo pTM across seeds
+                            Units: dimensionless
 apo_ranking_score           AF3 ranking score for apo state
+                            Units: dimensionless (0-1)
 apo_ranking_score_sd        SD of apo ranking score across seeds
+                            Units: dimensionless
 apo_fraction_disordered     Fraction disordered in apo (higher = more unfolded = good for switch)
+                            Units: dimensionless (0-1)
 apo_fraction_disordered_sd  SD of apo fraction disordered across seeds
+                            Units: dimensionless
 apo_mean_plddt              Mean pLDDT in apo state (lower = less confident = good for switch)
+                            Units: pLDDT score (0-100)
 apo_mean_plddt_sd           SD of apo mean pLDDT across seeds
+                            Units: pLDDT score
 apo_chromophore_plddt       Mean pLDDT of chromophore TYG in apo state
+                            Units: pLDDT score (0-100)
 apo_chromophore_plddt_sd    SD of apo chromophore pLDDT across seeds
+                            Units: pLDDT score
 apo_mean_pae                Mean PAE in apo state
+                            Units: Angstroms
 apo_mean_pae_sd             SD of apo mean PAE across seeds
+                            Units: Angstroms
 
 
 BACKWARD-COMPATIBLE ALIASES
@@ -68,28 +98,44 @@ HOLO vs APO DIFFERENCES
 ------------------------
 mean_plddt_diff             holo_mean_plddt - apo_mean_plddt
                             Positive = holo more confident than apo (good)
+                            Units: pLDDT score (delta)
 mean_plddt_diff_sd          Propagated SD: sqrt(holo_sd^2 + apo_sd^2)
+                            Units: pLDDT score
 chromophore_plddt_diff      holo_chromophore_plddt - apo_chromophore_plddt
                             Positive = chromophore more stable in holo (good)
+                            Units: pLDDT score (delta)
 chromophore_plddt_diff_sd   Propagated SD of chromophore pLDDT difference
+                            Units: pLDDT score
 pae_diff                    holo_mean_pae - apo_mean_pae
+                            Units: Angstroms (delta)
 pae_diff_sd                 Propagated SD of PAE difference
+                            Units: Angstroms
 
 
 STRUCTURAL COMPARISON (HOLO vs APO)
 ------------------------------------
-global_rmsd                 Mean Calpha RMSD between matched holo-apo seed pairs (Angstroms)
+global_rmsd                 Mean Calpha RMSD between matched holo-apo seed pairs
+                            Reference: each holo seed superimposed onto its
+                            matched apo seed (same seed index). NOT vs template.
                             Higher = more structural change between bound/unbound (good)
-global_rmsd_sd              SD of global RMSD across matched seed pairs
-chromophore_rmsd             Mean RMSD of chromophore residues (197-199) between holo-apo pairs
+                            Units: Angstroms
+global_rmsd_sd              SD of global RMSD across the 25 matched seed pairs
+                            Units: Angstroms
+chromophore_rmsd            Mean RMSD of chromophore residues (197-199) between
+                            matched holo-apo seed pairs
+                            Units: Angstroms
 chromophore_rmsd_sd         SD of chromophore RMSD across matched seed pairs
+                            Units: Angstroms
 mean_per_res_rmsd           Same as global_rmsd (kept for compatibility)
-max_per_res_rmsd            Maximum RMSD observed across matched seed pairs
+                            Units: Angstroms
+max_per_res_rmsd            Maximum RMSD observed across the 25 matched seed pairs
+                            Units: Angstroms
 
 
 SEQUENCE (07 only)
 ------------------
 sequence                    Full protein sequence (with TYG chromophore inserted)
+                            Units: amino acid one-letter codes
 
 
 RELATIVE APO STABILITY (07 only)
@@ -97,27 +143,36 @@ RELATIVE APO STABILITY (07 only)
 apo_plddt_vs_template       Design apo pLDDT minus template apo pLDDT
                             Negative = design is less stable than template in apo (good)
                             Positive = design is more stable than template in apo (bad)
+                            Units: pLDDT score (delta)
 
 
 FITNESS SCORE COMPONENTS (07 only) — each normalized 0-1
 --------------------------------------------------------
 score_component_chrom_holo  Normalized chromophore holo pLDDT (weight: 25%)
                             Higher = chromophore more confident when bound
+                            Units: dimensionless (0-1, normalized)
 score_component_iptm        Normalized iPTM (weight: 25%)
                             Higher = better protein-DNA interface
+                            Units: dimensionless (0-1, normalized)
 score_component_rmsd        Normalized global RMSD (weight: 15%)
                             Higher = more structural change holo vs apo
+                            Units: dimensionless (0-1, normalized)
 score_component_holo_ptm    Normalized holo pTM (weight: 15%)
                             Higher = better overall fold quality
+                            Units: dimensionless (0-1, normalized)
 score_component_rel_apo     Normalized relative apo pLDDT (weight: 10%, inverted)
                             Higher score = lower apo stability vs template
+                            Units: dimensionless (0-1, normalized)
 score_component_confidence  Normalized reproducibility penalty (weight: 5%)
                             Higher = lower SD across seeds (more reproducible)
+                            Units: dimensionless (0-1, normalized)
 score_component_chrom_diff  Normalized chromophore pLDDT difference (weight: 5%)
                             Higher = bigger chromophore stability gain in holo
+                            Units: dimensionless (0-1, normalized)
 
-fitness_score               Weighted sum of all components above (0-1)
+fitness_score               Weighted sum of all components above
                             Higher = better G4FP candidate
+                            Units: dimensionless (0-1)
 
 
 SELECTION FLAGS (07 only)
@@ -127,13 +182,242 @@ in_pareto                   True if design is on the Pareto frontier
 in_top10_per_tpl            True if design is in the top 10 for its template (by fitness)
 in_top50_global             True if design is in the top 50 overall (by fitness)
 final_rank                  Rank among all scored designs (1 = best fitness score)
+                            Units: integer rank
 
 
 HARD FILTERS APPLIED BEFORE SELECTION (07)
 ------------------------------------------
 Designs must pass all of:
-  - holo_mean_plddt >= 70
-  - holo_ptm >= 0.5
-  - holo_iptm >= 0.3
+  - holo_mean_plddt >= 70     (pLDDT score)
+  - holo_ptm >= 0.5           (dimensionless)
+  - holo_iptm >= 0.3          (dimensionless)
 Designs failing these are still in the CSV but excluded from
 top10/top50/Pareto selection pools.
+
+
+================================================================================
+Columns in: 07_ligandmpnn_entropy.csv
+================================================================================
+
+This file contains per-design LigandMPNN sampling entropy and confidence
+metrics. Entropy is computed from the sampling probability distributions
+output by LigandMPNN during sequence design. It quantifies how "decisive"
+the model was at each position — low entropy means the model strongly
+preferred one amino acid, high entropy means multiple amino acids were
+similarly probable.
+
+Merge with 07_final_candidates.csv on the 'global_id' column.
+
+Source data: output_G4FP_*/01_ligandmpnn/stats/*.pt
+  - sampling_probs tensor: (10000 designs x N_residues x 20 amino acids)
+  - Each value is the probability the model assigned to each amino acid
+    at each position for each design
+  - Only the 100 filtered designs (top 1% by confidence) are in the CSV
+
+IDENTIFIERS
+-----------
+global_id                       Unique ID matching 07_final_candidates.csv
+                                Format: {template}_design_{seq_id}
+template                        Template structure name
+seq_id                          Design index within template (0-99)
+                                Units: integer index
+
+
+ENTROPY METRICS
+---------------
+All entropy values are Shannon entropy computed in base 2.
+Units: bits
+Range: 0 (deterministic, model chose exactly one AA) to
+       log2(20) = 4.32 bits (uniform over all 20 amino acids)
+
+mean_entropy_all                Mean entropy across ALL residue positions
+                                Includes both designed and fixed positions
+                                Units: bits
+                                Typical values: 0.05-0.30 bits
+
+mean_entropy_designed           Mean entropy across the 92 DESIGNED positions only
+                                (residues A15-60 and A240-285)
+                                This is the key metric — measures how confident
+                                LigandMPNN was in its sequence choices
+                                Lower = model was more decisive = stronger signal
+                                Higher = model explored more AA options = less certain
+                                Units: bits
+                                Typical values: 0.15-0.30 bits
+
+mean_entropy_fixed              Mean entropy at FIXED (non-designed) positions
+                                Should be very low (~0) since these positions were
+                                constrained to the template sequence
+                                Values >0 indicate slight model uncertainty even
+                                at fixed positions
+                                Units: bits
+
+mean_entropy_chromophore_region  Mean entropy in a +/-5 residue window around the
+                                chromophore (TYG, residues 192-204)
+                                Important because positions near the chromophore
+                                affect fluorescence; lower entropy here means
+                                LigandMPNN found strong sequence preferences
+                                for chromophore packing
+                                Units: bits
+
+max_entropy                     Highest entropy at any single position
+                                Identifies the most uncertain position in the design
+                                Units: bits
+
+min_entropy_designed            Lowest entropy among designed positions
+                                Identifies the most confidently placed residue
+                                in the designed region
+                                Units: bits
+
+n_designed_positions            Number of positions that were redesigned (92)
+                                Units: count (dimensionless)
+n_total_positions               Total protein length (varies by template, 284-306)
+                                Units: count (residues)
+
+
+LIGANDMPNN CONFIDENCE SCORES
+-----------------------------
+overall_confidence              LigandMPNN's mean log-probability across all
+                                positions (higher = model is more confident in
+                                the entire sequence). This was the primary metric
+                                used for filtering top 1% (100 of 10K designs)
+                                Units: mean log-probability (dimensionless, higher = better)
+
+ligand_confidence               LigandMPNN's confidence specifically at positions
+                                near the ligand (G4-DNA and CRO chromophore)
+                                Higher = better predicted packing around ligands
+                                Units: mean log-probability (dimensionless)
+
+seq_rec                         Sequence recovery: fraction of designed positions
+                                that match the template sequence
+                                Higher = more conservative design (closer to WT)
+                                Lower = more novel design (more mutations)
+                                Units: fraction (0-1, dimensionless)
+
+combined_confidence             Average of overall_confidence and ligand_confidence
+                                Used as secondary ranking criterion
+                                Units: mean log-probability (dimensionless)
+
+
+================================================================================
+Columns in: 07_ligandmpnn_positional_entropy.csv
+================================================================================
+
+Aligned grid of template sequences with per-position mean entropy.
+All 10 template sequences are aligned to the longest template using
+pairwise Needleman-Wunsch alignment. Each alignment column has the
+residue identity and mean entropy (across all 10,000 LigandMPNN designs)
+for each template.
+
+COLUMNS
+-------
+alignment_column                Alignment position (1-indexed)
+                                Units: integer index
+
+{template_short}_residue        Amino acid at this alignment position for this
+                                template, or '-' for a gap
+                                Units: amino acid one-letter code
+
+{template_short}_entropy        Shannon entropy averaged across all 10K designs
+                                at this position for this template
+                                High = position is variable across designs
+                                Low = position is conserved (structurally critical)
+                                NaN = gap (no residue at this alignment position)
+                                Units: bits (base 2)
+
+{template_short}_designed       True if this position was in the design region
+                                (residues A15-60 or A240-285), False if fixed
+
+(template_short examples: des1_cro_mod0, r20_l1_cro_mod0, r28_l2_cro_mod3)
+
+INTERPRETATION
+--------------
+- Fixed positions (designed=False) should have near-zero entropy
+- Designed positions with LOW entropy (<0.1 bits): model strongly prefers one AA
+  -> likely structurally critical (core packing, H-bonds)
+- Designed positions with HIGH entropy (>0.5 bits): model sees multiple good options
+  -> likely solvent-exposed or tolerant to substitution
+- Positions near the chromophore (197-199) with low entropy suggest the model
+  found strong sequence-structure relationships for fluorescence
+
+
+================================================================================
+Columns in: template_af3_metrics.csv
+================================================================================
+
+Per-template AF3 prediction metrics computed from 25 seed replicates each
+for bound (holo) and apo states. These serve as the baseline reference —
+designs are compared against their parent template's metrics.
+
+Generated by: analyze_template_af3.py
+
+IDENTIFIERS
+-----------
+template_name                   Template structure name (G4FP_*)
+
+
+FITNESS SCORE
+-------------
+fitness_score                   Fitness score computed with same weights as designs
+                                (for comparison only — templates use rel_apo=0.5
+                                since they are their own reference)
+                                Units: dimensionless (0-1)
+
+
+HOLO/APO METRICS (same units as 06/07 columns above)
+-----------------------------------------------------
+holo_mean_plddt                 Template holo mean pLDDT (mean across 25 seeds)
+                                Units: pLDDT score (0-100)
+holo_mean_plddt_sd              SD across 25 seeds
+                                Units: pLDDT score
+holo_chromophore_plddt          Template chromophore pLDDT in holo
+                                Units: pLDDT score (0-100)
+holo_chromophore_plddt_sd       SD
+                                Units: pLDDT score
+holo_ptm                        Template holo pTM
+                                Units: dimensionless (0-1)
+holo_iptm                       Template holo iPTM (protein-DNA interface)
+                                Units: dimensionless (0-1)
+holo_ranking_score              Template holo AF3 ranking score
+                                Units: dimensionless (0-1)
+holo_fraction_disordered        Template holo fraction disordered
+                                Units: dimensionless (0-1)
+holo_interface_pae              Template holo interface PAE
+                                Units: Angstroms
+holo_mean_pae                   Template holo mean PAE
+                                Units: Angstroms
+apo_mean_plddt                  Template apo mean pLDDT
+                                Units: pLDDT score (0-100)
+apo_chromophore_plddt           Template apo chromophore pLDDT
+                                Units: pLDDT score (0-100)
+apo_ptm                         Template apo pTM
+                                Units: dimensionless (0-1)
+apo_ranking_score               Template apo AF3 ranking score
+                                Units: dimensionless (0-1)
+apo_fraction_disordered         Template apo fraction disordered
+                                Units: dimensionless (0-1)
+apo_mean_pae                    Template apo mean PAE
+                                Units: Angstroms
+(all with corresponding _sd columns in the same units)
+
+n_holo_seeds                    Number of holo seeds analyzed (25)
+                                Units: count
+n_apo_seeds                     Number of apo seeds analyzed (25)
+                                Units: count
+
+
+HOLO-APO COMPARISON
+-------------------
+global_rmsd                     Mean Calpha RMSD between matched holo-apo seed pairs
+                                Units: Angstroms
+global_rmsd_sd                  SD across seed pairs
+                                Units: Angstroms
+chromophore_rmsd                Chromophore RMSD between holo-apo pairs
+                                Units: Angstroms
+chromophore_rmsd_sd             SD
+                                Units: Angstroms
+mean_plddt_diff                 holo_mean_plddt - apo_mean_plddt
+                                Units: pLDDT score (delta)
+mean_plddt_diff_sd              Propagated SD
+                                Units: pLDDT score
+chromophore_plddt_diff          holo_chromophore_plddt - apo_chromophore_plddt
+                                Units: pLDDT score (delta)

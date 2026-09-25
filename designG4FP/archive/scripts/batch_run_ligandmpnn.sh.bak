@@ -1,0 +1,139 @@
+#!/bin/bash
+# Batch run LigandMPNN for multiple PDB files
+# Usage: nohup ./batch_run_ligandmpnn.sh &
+
+set -e  # Exit on error
+
+# ============================================================================
+# Configuration
+# ============================================================================
+INPUTS_DIR="/home/sbali/LigandMPNN/designG4FP/inputs"
+CONFIG_FILE="pipeline_config.yaml"
+DETAILED_LOG="batch_ligandmpnn_detailed.log"
+PROGRESS_LOG="batch_ligandmpnn_progress.log"
+
+# ============================================================================
+# Initialize logs
+# ============================================================================
+echo "============================================================================" > "$PROGRESS_LOG"
+echo "Batch LigandMPNN Run - Started at $(date)" >> "$PROGRESS_LOG"
+echo "============================================================================" >> "$PROGRESS_LOG"
+echo "" >> "$PROGRESS_LOG"
+
+echo "============================================================================" > "$DETAILED_LOG"
+echo "Batch LigandMPNN Detailed Output - Started at $(date)" >> "$DETAILED_LOG"
+echo "============================================================================" >> "$DETAILED_LOG"
+echo "" >> "$DETAILED_LOG"
+
+# ============================================================================
+# Find all PDB files
+# ============================================================================
+PDB_FILES=($(ls "$INPUTS_DIR"/*.pdb 2>/dev/null))
+TOTAL_PDBS=${#PDB_FILES[@]}
+
+if [ $TOTAL_PDBS -eq 0 ]; then
+    echo "ERROR: No PDB files found in $INPUTS_DIR" | tee -a "$PROGRESS_LOG"
+    exit 1
+fi
+
+echo "Found $TOTAL_PDBS PDB files to process:" | tee -a "$PROGRESS_LOG"
+for pdb in "${PDB_FILES[@]}"; do
+    echo "  - $(basename $pdb)" | tee -a "$PROGRESS_LOG"
+done
+echo "" | tee -a "$PROGRESS_LOG"
+
+# ============================================================================
+# Process each PDB file
+# ============================================================================
+COMPLETED=0
+FAILED=0
+SKIPPED=0
+
+for PDB_PATH in "${PDB_FILES[@]}"; do
+    PDB_NAME=$(basename "$PDB_PATH" .pdb)
+    
+    echo "------------------------------------------------------------------------" | tee -a "$PROGRESS_LOG"
+    echo "[$(date +%H:%M:%S)] Processing: $PDB_NAME" | tee -a "$PROGRESS_LOG"
+    echo "------------------------------------------------------------------------" | tee -a "$PROGRESS_LOG"
+    
+    # Update config file with current PDB
+    python3 -c "
+import yaml
+with open('$CONFIG_FILE', 'r') as f:
+    config = yaml.safe_load(f)
+
+# Update input_pdb path
+config['input_pdb'] = '$PDB_PATH'
+
+# Update output directory to be unique per PDB
+config['output_dir'] = '/home/sbali/LigandMPNN/designG4FP/output_${PDB_NAME}/'
+
+with open('$CONFIG_FILE', 'w') as f:
+    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+" 2>&1 | tee -a "$DETAILED_LOG"
+    
+    if [ $? -ne 0 ]; then
+        echo "❌ ERROR: Failed to update config for $PDB_NAME" | tee -a "$PROGRESS_LOG"
+        ((FAILED++))
+        continue
+    fi
+    
+    echo "  ✓ Updated config: input_pdb = $PDB_PATH" | tee -a "$PROGRESS_LOG"
+    echo "  ✓ Output will be saved to: output_${PDB_NAME}/" | tee -a "$PROGRESS_LOG"
+    echo "" | tee -a "$PROGRESS_LOG"
+    
+    # Run LigandMPNN
+    echo "  Starting LigandMPNN (this may take 10-30 minutes)..." | tee -a "$PROGRESS_LOG"
+    START_TIME=$(date +%s)
+    
+    # Run and capture output
+    if ./01_run_ligandmpnn.sh >> "$DETAILED_LOG" 2>&1; then
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+        MINUTES=$((DURATION / 60))
+        SECONDS=$((DURATION % 60))
+        
+        # Check if output was actually generated
+        OUTPUT_DIR="/home/sbali/LigandMPNN/designG4FP/output_${PDB_NAME}/01_ligandmpnn/seqs"
+        if [ -d "$OUTPUT_DIR" ] && [ -n "$(ls -A $OUTPUT_DIR/*.fa 2>/dev/null)" ]; then
+            SEQ_COUNT=$(grep -c "^>" $OUTPUT_DIR/*.fa 2>/dev/null || echo "0")
+            echo "  ✅ SUCCESS: Generated $SEQ_COUNT sequences in ${MINUTES}m ${SECONDS}s" | tee -a "$PROGRESS_LOG"
+            ((COMPLETED++))
+        else
+            echo "  ⚠️  WARNING: Completed but no sequences found" | tee -a "$PROGRESS_LOG"
+            ((SKIPPED++))
+        fi
+    else
+        END_TIME=$(date +%s)
+        DURATION=$((END_TIME - START_TIME))
+        echo "  ❌ FAILED after ${DURATION}s - check detailed log" | tee -a "$PROGRESS_LOG"
+        ((FAILED++))
+    fi
+    
+    echo "" | tee -a "$PROGRESS_LOG"
+done
+
+# ============================================================================
+# Final summary
+# ============================================================================
+echo "============================================================================" | tee -a "$PROGRESS_LOG"
+echo "Batch Processing Complete - Finished at $(date)" | tee -a "$PROGRESS_LOG"
+echo "============================================================================" | tee -a "$PROGRESS_LOG"
+echo "" | tee -a "$PROGRESS_LOG"
+echo "Summary:" | tee -a "$PROGRESS_LOG"
+echo "  Total PDBs:     $TOTAL_PDBS" | tee -a "$PROGRESS_LOG"
+echo "  ✅ Completed:   $COMPLETED" | tee -a "$PROGRESS_LOG"
+echo "  ⚠️  Skipped:    $SKIPPED" | tee -a "$PROGRESS_LOG"
+echo "  ❌ Failed:      $FAILED" | tee -a "$PROGRESS_LOG"
+echo "" | tee -a "$PROGRESS_LOG"
+echo "Log files:" | tee -a "$PROGRESS_LOG"
+echo "  Progress: $PROGRESS_LOG" | tee -a "$PROGRESS_LOG"
+echo "  Detailed: $DETAILED_LOG" | tee -a "$PROGRESS_LOG"
+echo "" | tee -a "$PROGRESS_LOG"
+
+if [ $FAILED -gt 0 ]; then
+    echo "⚠️  Some jobs failed. Check $DETAILED_LOG for details." | tee -a "$PROGRESS_LOG"
+    exit 1
+else
+    echo "🎉 All jobs completed successfully!" | tee -a "$PROGRESS_LOG"
+fi

@@ -194,11 +194,20 @@ def _analyze_template_seed(seed_dir: Path, chain_id: str = 'A') -> Optional[Dict
 
 
 def load_template_metrics(base_dir: Path) -> pd.DataFrame:
-    """Load template AF3 predictions (holo + apo) for reference overlays.
+    """Load template AF3 metrics from pre-computed CSV or scan directories.
 
-    Checks template_af3_outputs/{bound,apo}/ for AF3 results with per-seed
-    analysis. Falls back to B-factor pLDDT from input PDBs.
+    Priority:
+      1. template_af3_metrics.csv (from analyze_template_af3.py)
+      2. Scan template_af3_outputs/ directories
+      3. Fall back to B-factor pLDDT from input PDBs
     """
+    # Priority 1: pre-computed CSV
+    metrics_csv = base_dir / "template_af3_metrics.csv"
+    if metrics_csv.exists():
+        df = pd.read_csv(metrics_csv)
+        print(f"  Loaded {len(df)} template references from {metrics_csv.name}")
+        return df
+
     template_af3_dir = base_dir / "template_af3_outputs"
     records = []
 
