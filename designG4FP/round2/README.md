@@ -412,3 +412,36 @@ Caveat on this demo: it runs on the round-1 table, whose chromophore columns
 carry defect (1) and whose interface metrics come from models that all have
 10-37 clashing protein-DNA atom pairs. The specific survivors are therefore
 not meaningful; the gate mechanics and the rejection reasons are.
+
+## 7. Completing the gate inputs (added after the pipeline review)
+
+A review against the gate definitions found that two of the eight metrics
+`12_iterate.py` gates on were never produced by `09_rescore_and_select.py`.
+Both are now implemented.
+
+**`holo_interface_pae`** (BIND). AF3 writes the full PAE matrix to
+`*_full_data_*.json` next to each model, with `token_chain_ids` naming the chain
+of every token. `interface_pae()` takes the protein-by-DNA block (both
+triangles) and reports its mean and minimum. ipTM is one number for the whole
+complex; mean interface PAE is what the metalloprotease pipeline actually gated
+on, and min interface PAE says whether any part of the interface is confidently
+placed. Measured on the tested constructs: mean 13.2-16.7 A, min 2.0-3.3 A.
+
+**`chromophore_rmsd`** (SWITCH). `chromophore_switch_rmsd()` pairs each design's
+holo and apo model and measures how far the triad moves. Superposition is LOCAL
+- on the Ca atoms within 15 A of the triad - because whole-chain superposition
+of a holo/apo pair whose binding domains have swung apart reaches 10.9 A, and a
+triad RMSD computed in that frame reports domain motion rather than anything
+about the chromophore. The function also returns `switch_fit_rmsd`, the residual
+of the local superposition: above ~0.5 A the triad RMSD is reporting barrel
+deformation and must not be gated on. This is the same caveat that retracted
+`cro_min_dist` in round 1, enforced in code this time. Measured on the tested
+constructs: 0.19-0.22 A at fit residuals of 0.16-0.24 A.
+
+Both require `--apo-root`. Without it the SWITCH group and half of BIND are
+skipped, and `12_iterate.py` prints which metrics were unavailable.
+
+Removed in the same pass: `11_cascade.py` and its result directories
+(superseded by `12_iterate.py`), and `iter1_demo/` (generated from uncorrected
+round-1 chromophore columns, so its survivor list was never meaningful). All
+recoverable from git history.

@@ -243,3 +243,14 @@ step 1 automatically; if not, please re-predict them in the holo state
 | stage B removes zero designs | same cause: the gate cannot evaluate a NaN column and passes everything |
 | all designs removed by a gate | loosen that gate's flag; the printout names which criterion removed what |
 | `No structures found under ...` | wrong `--layout`; try `--layout af3` explicitly |
+
+## IMPORTANT: --apo-root is not optional
+
+`09_rescore_and_select.py` must be given `--apo-root` pointing at the matching
+apo predictions. Without it `chromophore_plddt_diff_fixed` and
+`chromophore_rmsd` are never computed, the whole SWITCH gate is silently
+skipped, and `12_iterate.py` degenerates to APO + FOLD + ipTM. The script
+prints `metrics unavailable (their criteria are skipped): ...` when this
+happens - check that line before trusting a survivor list.
+
+`--template-apo-root` is likewise required for `apo_plddt_vs_template`.

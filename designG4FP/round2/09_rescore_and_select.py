@@ -242,7 +242,120 @@ def metrics_for_model(cif: Path, fallback_range: Optional[Tuple[int, int]]) -> O
         dmat = np.sqrt(((prot[:, None, :] - dna[None, :, :]) ** 2).sum(-1))
         rec["min_protein_dna_dist"] = float(dmat.min())
         rec["n_clash_pairs"] = int((dmat < 2.5).sum())
+    rec.update(interface_pae(cif, chain,
+                             {a[0] for a in atoms if a[2] in DNA_COMPS}))
     return rec
+
+
+def interface_pae(cif: Path, protein_chain: str, dna_chains: set) -> dict:
+    """Mean and minimum predicted aligned error across the protein-DNA interface.
+
+    AF3 writes the full PAE matrix to `*_full_data_*.json` alongside each model,
+    with `token_chain_ids` giving the chain of every token.  The BIND gate needs
+    this: ipTM is a single whole-complex number, whereas mean interface PAE is
+    the quantity the metalloprotease pipeline gates on, and min interface PAE
+    tells you whether ANY part of the interface is confidently placed.
+    """
+    out = {"interface_pae_mean": float("nan"), "interface_pae_min": float("nan")}
+    if not dna_chains:
+        return out
+    stem = cif.stem
+    m = re.search(r"model_?(\d+)", stem)
+    idx = m.group(1) if m else None
+    cands = sorted(cif.parent.glob("*full_data*.json"))
+    if idx is not None:
+        pref = [p for p in cands if re.search(rf"full_data_{idx}\b", p.name)]
+        cands = pref or cands
+    for p in cands:
+        try:
+            d = json.load(open(p))
+        except Exception:
+            continue
+        if "pae" not in d or "token_chain_ids" not in d:
+            continue
+        pae = np.asarray(d["pae"], dtype=float)
+        tok = np.asarray(d["token_chain_ids"])
+        pi = np.flatnonzero(tok == protein_chain)
+        di = np.flatnonzero(np.isin(tok, list(dna_chains)))
+        if pi.size == 0 or di.size == 0 or pae.shape[0] != tok.size:
+            continue
+        block = np.concatenate([pae[np.ix_(pi, di)].ravel(),
+                                pae[np.ix_(di, pi)].ravel()])
+        out["interface_pae_mean"] = float(block.mean())
+        out["interface_pae_min"] = float(block.min())
+        break
+    return out
+
+
+def _kabsch_apply(mobile: np.ndarray, ref: np.ndarray,
+                  move: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Superpose `mobile` onto `ref`, apply the transform to `move`.
+
+    Returns the transformed coordinates and the fit RMSD over the atoms used.
+    """
+    mc, rc = mobile.mean(0), ref.mean(0)
+    V, _, Wt = np.linalg.svd((mobile - mc).T @ (ref - rc))
+    D = np.diag([1.0, 1.0, float(np.sign(np.linalg.det(V @ Wt)))])
+    R = V @ D @ Wt
+    fit = float(np.sqrt((((mobile - mc) @ R - (ref - rc)) ** 2).sum(1).mean()))
+    return (move - mc) @ R + rc, fit
+
+
+def chromophore_switch_rmsd(holo_cif: Path, apo_cif: Path,
+                            fallback: Optional[Tuple[int, int]],
+                            shell: float = 15.0) -> dict:
+    """Displacement of the chromophore triad between holo and apo.
+
+    Superposition is LOCAL -- on the Ca atoms within `shell` A of the triad --
+    not whole-chain.  A design whose binding domains swing away from the barrel
+    has a whole-chain superposition that is meaningless (round-1 holo/apo pairs
+    reached 10.9 A), and a triad RMSD computed in that frame reports the domain
+    motion rather than anything about the chromophore.  The SWITCH gate is meant
+    to be chromophore-local, so the frame has to be too.
+
+    `switch_fit_rmsd` is the residual of the local superposition itself.  A
+    large value means the barrel neighbourhood differs between the two states,
+    in which case the triad RMSD is not interpretable -- the same caveat that
+    retracted `cro_min_dist` in round 1.
+    """
+    out = {"chromophore_rmsd": float("nan"), "switch_fit_rmsd": float("nan"),
+           "switch_shell_n": 0}
+    ah, aa = parse_cif_atoms(holo_cif), parse_cif_atoms(apo_cif)
+    if not ah or not aa:
+        return out
+    ch, ca_ = protein_chain_id(ah), protein_chain_id(aa)
+    if ch is None or ca_ is None:
+        return out
+    th = find_chromophore_triad(ah, ch, fallback)
+    ta = find_chromophore_triad(aa, ca_, fallback)
+    if not th or not ta or len(set(th)) == 1 or len(set(ta)) == 1:
+        return out
+    hca = {s: np.array([x, y, z]) for c, s, cp, aid, x, y, z, b in ah
+           if c == ch and aid == "CA"}
+    aca = {s: np.array([x, y, z]) for c, s, cp, aid, x, y, z, b in aa
+           if c == ca_ and aid == "CA"}
+    centre = np.mean([hca[s] for s in dict.fromkeys(th) if s in hca], axis=0)
+    sel = [s for s in hca if s in aca and np.linalg.norm(hca[s] - centre) < shell]
+    if len(sel) < 20:
+        return out
+    P = np.array([aca[s] for s in sel])
+    Q = np.array([hca[s] for s in sel])
+    names = ("N", "CA", "C")
+    mv, rf = [], []
+    for sa, sh in zip(ta, th):
+        for nm in names:
+            a = _atom_xyz(aa, ca_, sa, nm)
+            h = _atom_xyz(ah, ch, sh, nm)
+            if a is None or h is None:
+                return out
+            mv.append(a)
+            rf.append(h)
+    moved, fit = _kabsch_apply(P, Q, np.array(mv))
+    out["chromophore_rmsd"] = float(
+        np.sqrt(((moved - np.array(rf)) ** 2).sum(1).mean()))
+    out["switch_fit_rmsd"] = fit
+    out["switch_shell_n"] = len(sel)
+    return out
 
 
 def read_summary_confidences(d: Path) -> dict:
@@ -469,7 +582,9 @@ def collect(root: Path, layout: str, state: str,
                    ("d_cyclization", "d_cyclization"),
                    ("ptm", f"{state}_ptm"), ("iptm", f"{state}_iptm"),
                    ("min_protein_dna_dist", "min_protein_dna_dist"),
-                   ("n_clash_pairs", "n_clash_pairs")]
+                   ("n_clash_pairs", "n_clash_pairs"),
+                   ("interface_pae_mean", f"{state}_interface_pae"),
+                   ("interface_pae_min", f"{state}_interface_pae_min")]
         for col, out in mapping:
             if col in M:
                 rec[out] = float(M[col].mean())
@@ -542,6 +657,34 @@ def main():
         if "apo_chromophore_plddt_fixed" in df:
             df["chromophore_plddt_diff_fixed"] = (df["holo_chromophore_plddt_fixed"]
                                                   - df["apo_chromophore_plddt_fixed"])
+
+        # ---- chromophore-local switch geometry -------------------------
+        # The SWITCH gate needs a DISPLACEMENT, not only a confidence change.
+        # Pair each design's holo and apo model and measure how far the triad
+        # moves after superposing the barrel neighbourhood around it.
+        hg, ag = discover(root, args.layout), discover(args.apo_root, args.layout)
+        solo = defaultdict(list)
+        for (t, d_), v in ag.items():
+            solo[d_].append((t, v))
+        sw = {}
+        for (tpl, did), hcifs in hg.items():
+            acifs = ag.get((tpl, did))
+            if acifs is None and len(solo.get(did, [])) == 1:
+                acifs = solo[did][0][1]
+            if not acifs:
+                continue
+            sw[f"{tpl}_design_{did}"] = chromophore_switch_rmsd(
+                sorted(hcifs)[0], sorted(acifs)[0], fallback)
+        if sw:
+            for col in ("chromophore_rmsd", "switch_fit_rmsd", "switch_shell_n"):
+                df[col] = [sw.get(g, {}).get(col, np.nan) for g in df["global_id"]]
+            n_ok = int(df["chromophore_rmsd"].notna().sum())
+            bad = int((df["switch_fit_rmsd"] > 0.5).sum())
+            print(f"chromophore switch RMSD computed for {n_ok}/{len(df)} designs")
+            if bad:
+                print(f"  WARNING: {bad} have a local-superposition residual > 0.5 A; "
+                      f"their chromophore_rmsd reports barrel deformation, not triad "
+                      f"motion, and should not be gated on")
 
     # ---- compute apo_plddt_vs_template from structures where possible -----
     # This metric drives stage B of the cascade.  It must NOT be taken from
