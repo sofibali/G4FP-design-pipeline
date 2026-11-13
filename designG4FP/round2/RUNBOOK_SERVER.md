@@ -254,3 +254,23 @@ prints `metrics unavailable (their criteria are skipped): ...` when this
 happens - check that line before trusting a survivor list.
 
 `--template-apo-root` is likewise required for `apo_plddt_vs_template`.
+
+## Verified end to end
+
+The 09 -> 12 chain was run on a 3-design AF3 tree in this exact layout
+(`output_*/design_NNNN/seed-N_sample-M/`) with holo and apo roots supplied.
+All eight gate metrics came out populated:
+
+    FOLD    holo_mean_plddt, holo_ptm, holo_chromophore_plddt_fixed
+    BIND    holo_iptm, holo_interface_pae
+    APO     apo_plddt_vs_template
+    SWITCH  chromophore_plddt_diff_fixed, chromophore_rmsd
+
+If `12_iterate.py` prints `metrics unavailable (their criteria are skipped)`,
+an input root is missing - do not trust the survivor list.
+
+`12_iterate.py` now EXITS NON-ZERO and writes nothing if the survivor set
+empties, naming the gate that emptied it. Thresholds tighten every iteration,
+so this is a realistic outcome at iteration 3; without the guard every later
+gate reports `removed 0 -> 0`, which reads like the gates passed rather than
+like there was nothing left to pass.

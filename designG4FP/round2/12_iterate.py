@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -246,6 +247,23 @@ def main():
             print(f"    {t['criterion'][:70]:72} thr={t['threshold']} "
                   f"removed {t['removed']} -> {t['n_remaining']}")
     print(f"\nsurvivors: {len(surv)} of {len(df)}")
+
+    # An empty survivor set must stop the loop loudly.  Thresholds tighten every
+    # iteration, so emptying the set is a realistic outcome at iteration 3 -- and
+    # once the count hits zero every later gate reports "removed 0 -> 0", which
+    # reads like the gates passed rather than like there was nothing left.
+    if len(surv) == 0:
+        culprit = next((t for t in trace if t.get("n_remaining") == 0
+                        and t.get("removed", 0) > 0), None)
+        where = culprit["criterion"] if culprit else "an unidentified criterion"
+        grp = culprit["group"] if culprit else "?"
+        sys.exit(
+            f"\n*** No designs survive iteration {args.iteration}. ***\n"
+            f"    The set emptied at [{grp}] {where}\n"
+            f"    Nothing has been written; the next design round has no input.\n"
+            f"    Loosen that gate (--keep-fold / --keep-bind / --keep-switch /\n"
+            f"    --apo-hi), or stop here and order from the previous iteration's\n"
+            f"    survivors.\n")
 
     if args.previous and args.previous.exists():
         prev = pd.read_csv(args.previous)
