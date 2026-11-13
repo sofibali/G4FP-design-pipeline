@@ -52,8 +52,10 @@ works on AF3 models that contain no `CRO` heteroresidue.
 
 This supersedes the approach on the unmerged branch
 `copilot/update-chromophore-residue-selection`, which auto-detects the `CRO`
-HETATM. Round-2 inputs are AF3 models with no CRO at all, so CRO detection
-would find nothing in them.
+HETATM. AF3 models carry no CRO as predicted, so CRO detection alone would
+find nothing in them; the motif works either way, and still works after
+`10_graft_chromophore.py` has put CRO back (it searches the sequence, which
+the graft does not change).
 
 ### 1.3 The apo term did no work
 
@@ -129,7 +131,7 @@ Agreed with Kielen, November 2026.
 | Design inputs | the experimentally tested round-1 variants, not the original templates |
 | Designs per input | 10,000 (so 20,000 across the `r28_l2_cro_mod2` pair) |
 | Redesign window | first 40 and last 40 residues of each input, symmetric by construction |
-| Chromophore | AF3 models used as-is; no CRO grafting |
+| Chromophore | mature CRO grafted back into every input by `10_graft_chromophore.py` (see 5.1) |
 | Model | `ligandmpnn_v_32_010_25.pt`, ligand context on, 8.0 A score cutoff |
 
 ### Why 40 + 40
@@ -159,9 +161,12 @@ symmetry, but it means some round-2 designs will lose both.
 
 | File | Purpose |
 |---|---|
-| `09_rescore_and_select.py` | corrected chromophore metrics, geometry gate, fitness, Pareto, top-N per template |
+| `09_rescore_and_select.py` | corrected chromophore metrics, fitness, Pareto, top-N per template — **superseded as a selector by `11_cascade.py`**, still used to build the metric table |
+| `10_graft_chromophore.py` | grafts the mature CRO back into AF3 models and writes PDB for LigandMPNN |
+| `11_cascade.py` | staged gate cascade; the selector (see 5.2) |
 | `MISSING_STRUCTURES.md` | the 7 tested variants with no AF3 structure anywhere |
-| `09_results/` | output of the partial local run (36 designs only — see below) |
+| `09_results/`, `11_results/` | outputs of the partial local run (36 designs only — see below) |
+| `inputs_round2/` | the 36 CRO-grafted PDBs, `<template>_d<NNNN>_CRO.pdb`, plus `10_graft_report.csv` |
 
 ### Running it
 
@@ -213,6 +218,19 @@ tightening, a self-consistency iteration, and the mechanistically essential
 species present in the model.
 
 ### 5.1 The chromophore is our catalytic water
+
+**Two separate decisions, easily confused:**
+
+| | decision | status |
+|---|---|---|
+| grafting CRO into the design inputs | **yes, we do this** | every round-2 input is CRO-grafted (`inputs_round2/*_CRO.pdb`) |
+| using chromophore geometry as a selection filter | **no, we do not** | the metric that looked promising was an artifact (below); stage A is off |
+
+Grafting is input preparation: it restores to the LigandMPNN context a group
+that AF3 leaves out, and 5 of the 80 designed positions are within the 8 A
+ligand cutoff of it. Filtering on chromophore geometry is a separate claim
+about whether that geometry predicts fluorescence, and it does not.
+
 
 Modelling Zn(II) alone gave 3/89 active designs and could not tell active from
 inactive apart; including the catalytic water gave 31/38. For G4FP the
@@ -268,7 +286,7 @@ which is interpretable; a clash count at fit > 0.5 A is not.
 
 | Stage | Question | Needs AF3? |
 |---|---|---|
-| A chromophore | can the barrel host a mature chromophore? | no |
+| A chromophore | can the barrel host a mature chromophore? — **off by default, see 5.1** | no |
 | B apo foldability | can it fold and mature at all? | apo prediction |
 | C holo complex | does it engage the G4 with a credible interface? | holo prediction |
 | D self-consistency | does LigandMPNN on the AF3 model recover the sequence? | both |
