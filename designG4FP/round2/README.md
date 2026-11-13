@@ -180,3 +180,93 @@ designs have stored structures (3 per template, 9 for `r20_l1_cro_mod0`), and
 the repo has never contained a single `.cif` — AF3 predictions are excluded by
 `designG4FP/.gitignore`. A genuine "top 5 per template" selection needs the full
 prediction set and can only be produced on Sofia's server.
+
+
+---
+
+## 5. Restructured pipeline (after Chen, Wu et al., Nature 2026)
+
+The weighted composite in `09_rescore_and_select.py` is superseded by a staged
+gate cascade, `11_cascade.py`, modelled on the metalloprotease pipeline in
+doi 10.1038/s41586-026-11167-2. Their Supplementary Methods "Filtering"
+thresholds, quoted for reference:
+
+| State | Criteria |
+|---|---|
+| apo protease | pLDDT > 86, catalytic sidechain RMSD < 1.5 A, Ca RMSD < 1.8 A |
+| ES complex | pLDDT > 92, mean interface PAE < 5, min interface PAE < 1.2, catalytic sidechain RMSD < 1.5 A, Ca RMSD < 1.8 A |
+| TSA complex | pLDDT > 92, mean interface PAE < 5, catalytic sidechain RMSD < 1.5 A, Ca RMSD < 1.8 A |
+| geometry | Zn-chelator distances within 0.5 A of PDB 4qhp; Zn to scissile carbonyl within 0.5 A of the astacin ES model |
+| iteration | AF3 TSA models fed back to MPNN for one further round; only designs passing **both before and after** were ordered |
+
+Earlier rounds use looser thresholds that tighten progressively: apo pLDDT
+> 82 after the first MPNN round, > 85 after partial diffusion at T=40, > 86 at
+the final filter. MPNN was run with `--temperature 0.1 --omit_AA C
+--chains_to_design A,B --pack_side_chains 1`, with constrained relax iterated
+ten times (their "EnhancedMPNN-FR").
+
+**Their numbers are not transferable.** Those thresholds are calibrated
+against a theozyme extracted from a crystal structure; G4FP has no equivalent
+ground truth for the intended holo sensor. What transfers is the architecture:
+non-compensatory AND-gates per state, cheap criteria first, progressive
+tightening, a self-consistency iteration, and the mechanistically essential
+species present in the model.
+
+### 5.1 The chromophore is our catalytic water
+
+Modelling Zn(II) alone gave 3/89 active designs and could not tell active from
+inactive apart; including the catalytic water gave 31/38. For G4FP the
+equivalent omission is the mature chromophore. AF3 predicts the Thr-Tyr-Gly
+triad as an ordinary extended tripeptide: across the 14 round-2 input
+structures the Thr-Ca to Gly-Ca distance is 4.66-5.35 A, against 3.10 A in the
+cyclized CRO of the templates. `10_graft_chromophore.py` restores it.
+
+Measured consequence on the 14 tested variants, ranking by the clearance
+available to the grafted chromophore (`cro_min_dist`):
+
+| rank | design | outcome | cro_min_dist |
+|---|---|---|---|
+| 1 | r28_l2_cro_mod2_design_0016 | fluorescent | 3.00 |
+| 2 | r28_l2_cro_mod2_design_0072 | fluorescent | 2.85 |
+| 3-14 | twelve dark variants | dark | 2.56 down to 1.99 |
+
+This is the only metric examined that ranks both bright variants at the top.
+**Three caveats, all serious.** Both bright variants come from the same
+template, and `cro_min_dist` has a clear template component (median 2.85 for
+r28_l2_cro_mod2 against 0.67 for r20_l2_cro_mod3), so this cannot be
+distinguished from a template effect. The 2.3 A gate was chosen after seeing
+where the two hits fell, so the cascade is not validated independently of the
+data used to set it. And n = 2. Treat it as a hypothesis for round 2 to test,
+not as an established filter.
+
+### 5.2 Cascade stages
+
+| Stage | Question | Needs AF3? |
+|---|---|---|
+| A chromophore | can the barrel host a mature chromophore? | no |
+| B apo foldability | can it fold and mature at all? | apo prediction |
+| C holo complex | does it engage the G4 with a credible interface? | holo prediction |
+| D self-consistency | does LigandMPNN on the AF3 model recover the sequence? | both |
+
+Run on the 36 designs with stored structures: 36 -> 12 (A) -> 4 (B) -> 4 (C).
+Of the 14 tested variants among them, exactly 2 survive and both are the
+fluorescent ones. The other two survivors are untested `des1_cro_mod0`
+designs -- the template where 100/100 designs clear the apo floor and which
+round 1 never sampled.
+
+### 5.3 Selection: stratify, do not maximise
+
+Round 1 only ever tested designs below their template's apo order. The upper
+edge of the viable window is uncharacterised, and pKZ168 suggests that far
+above the floor you get ligand-independent folding. `11_cascade.py --select
+stratify` samples bands of `apo_plddt_vs_template` instead of maximising it,
+so round 2 locates that edge rather than assuming it.
+
+### 5.4 What we are not copying
+
+Their hit rates rest on 135 designs tested through a deliberately cheap
+primary screen (a cis fusion of protease and substrate in one gene), with a
+stricter trans screen on the 22 hits; the two correlate at Pearson r = 0.91.
+G4FP tested 21. With two positives from a single template, no computational
+metric can be validated on round-1 data -- the binding constraint is the size
+of the experimental screen, not the sophistication of the score.
