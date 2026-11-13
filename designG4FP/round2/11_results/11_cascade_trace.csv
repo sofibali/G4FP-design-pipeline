@@ -1,5 +1,5 @@
 stage,in,out
-A_chromophore,36,12
-B_apo_foldability,12,4
-C_holo_complex,4,4
-D_self_consistency,4,4
+A_chromophore,36,36
+B_apo_foldability,36,8
+C_holo_complex,8,8
+D_self_consistency,8,8

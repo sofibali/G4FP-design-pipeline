@@ -101,14 +101,21 @@ class Stage:
 
 
 def build_cascade(a) -> List[Stage]:
+    # Stage A is OFF by default.  cro_min_dist was initially reported as
+    # separating the two fluorescent variants; it does not.  It correlates
+    # with the superposition residual at r = 0.849 among the tested variants,
+    # and superposition-free pocket measures show no difference between the
+    # classes (README 5.1).  The clash criterion is only meaningful where the
+    # graft placement is trustworthy, so it is conditioned on graft_fit_rmsd.
     A = Stage("A_chromophore",
-              "mature chromophore compatibility (structure-only, no AF3 needed)")
-    A.add(f"grafted CRO min distance >= {a.cro_min_dist} A",
-          lambda d: d["cro_min_dist"] >= a.cro_min_dist, "cro_min_dist")
-    A.add(f"new clashes from CRO graft <= {a.cro_max_clashes}",
-          lambda d: d["new_clashes"] <= a.cro_max_clashes, "new_clashes")
-    A.add(f"graft fit RMSD <= {a.graft_fit_rmsd} A",
-          lambda d: d["graft_fit_rmsd"] <= a.graft_fit_rmsd, "graft_fit_rmsd")
+              "mature chromophore compatibility (opt-in; see README 5.1)")
+    if a.cro_min_dist is not None:
+        A.add(f"grafted CRO min distance >= {a.cro_min_dist} A",
+              lambda d: d["cro_min_dist"] >= a.cro_min_dist, "cro_min_dist")
+    if a.cro_max_clashes is not None:
+        A.add(f"CRO graft clashes <= {a.cro_max_clashes} where fit <= {a.graft_fit_trust} A",
+              lambda d: (d["new_clashes"] <= a.cro_max_clashes)
+                        | (d["graft_fit_rmsd"] > a.graft_fit_trust), "new_clashes")
 
     B = Stage("B_apo_foldability",
               "the design must be able to fold and mature at all")
@@ -169,9 +176,13 @@ def main():
                     help="10_graft_report.csv -- adds the stage-A columns")
     ap.add_argument("--out", type=Path, required=True)
     # stage A
-    ap.add_argument("--cro-min-dist", type=float, default=2.3)
-    ap.add_argument("--cro-max-clashes", type=int, default=0)
-    ap.add_argument("--graft-fit-rmsd", type=float, default=2.0)
+    ap.add_argument("--cro-min-dist", type=float, default=None,
+                    help="OFF by default: this metric is confounded by graft "
+                         "placement quality (README 5.1)")
+    ap.add_argument("--cro-max-clashes", type=int, default=None,
+                    help="OFF by default; only applied where graft fit is trustworthy")
+    ap.add_argument("--graft-fit-trust", type=float, default=0.5,
+                    help="max graft_fit_rmsd (A) for the clash criterion to be applied")
     # stage B
     ap.add_argument("--apo-vs-template", type=float, default=0.0)
     ap.add_argument("--apo-plddt", type=float, default=0.0)

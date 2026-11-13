@@ -222,22 +222,47 @@ structures the Thr-Ca to Gly-Ca distance is 4.66-5.35 A, against 3.10 A in the
 cyclized CRO of the templates. `10_graft_chromophore.py` restores it.
 
 Measured consequence on the 14 tested variants, ranking by the clearance
-available to the grafted chromophore (`cro_min_dist`):
+available to the grafted chromophore (`cro_min_dist`), the two fluorescent
+variants came 1st and 2nd (3.00 and 2.85 A; the twelve dark spanning 2.56 down
+to 1.99 A).
 
-| rank | design | outcome | cro_min_dist |
-|---|---|---|---|
-| 1 | r28_l2_cro_mod2_design_0016 | fluorescent | 3.00 |
-| 2 | r28_l2_cro_mod2_design_0072 | fluorescent | 2.85 |
-| 3-14 | twelve dark variants | dark | 2.56 down to 1.99 |
+**That result is an artifact and is retracted.** `cro_min_dist` measures how
+far the *transplanted* CRO ends up from the model's own atoms, which depends
+on where the superposition puts it. Within the 14 tested variants it
+correlates with the superposition residual `graft_fit_rmsd` at r = 0.849
+(p = 0.0001), and the two bright designs are the only ones whose barrels
+deviate appreciably from their template around the chromophore (fit 0.98 and
+1.26 A, against 0.16-0.32 A for all twelve dark). Their apparent extra
+clearance is imprecise placement, not a roomier pocket.
 
-This is the only metric examined that ranks both bright variants at the top.
-**Three caveats, all serious.** Both bright variants come from the same
-template, and `cro_min_dist` has a clear template component (median 2.85 for
-r28_l2_cro_mod2 against 0.67 for r20_l2_cro_mod3), so this cannot be
-distinguished from a template effect. The 2.3 A gate was chosen after seeing
-where the two hits fell, so the cascade is not validated independently of the
-data used to set it. And n = 2. Treat it as a hypothesis for round 2 to test,
-not as an established filter.
+Measured directly in the model with no superposition at all, the pocket is the
+same size in both classes:
+
+| pocket measure (triad excluded) | bright (n=2) | dark (n=12) |
+|---|---|---|
+| protein atoms within 6 A of triad centroid | 23.0 | 23.3 |
+| protein atoms within 8 A | 63.0 | 64.3 |
+| mean distance to the nearest 20 atoms | 4.93 A | 4.93 A |
+| closest environment atom to the triad | 2.76 A | 2.53 A |
+
+On the last measure the bright designs rank 4th and 5th of 14, inside the dark
+distribution. **The dark designs are not dark because they compress the
+chromophore pocket.** No chromophore-geometry measure examined separates the
+two classes.
+
+What survives: restoring CRO is still correct, because AF3 genuinely omits the
+mature chromophore and LigandMPNN loses that context without it (5 of the 80
+designed positions lie within the 8 A ligand cutoff of the chromophore, since
+circular permutation places the cpGFP termini against it). But the graft is an
+input-preparation step, not a discriminator.
+
+Consequence for the cascade: the chromophore gate is **off by default**. The
+2-of-2 recall reported below comes entirely from stage B -- disabling stage A
+leaves 8 survivors of 36, still containing both bright variants and none of
+the twelve dark ones. The CRO clash count remains available as an opt-in
+criterion, but only where `graft_fit_rmsd` is small enough for the placement
+to be trusted: `r20_l2_cro_mod3` designs clash 11-15 times at fit 0.25-0.31 A,
+which is interpretable; a clash count at fit > 0.5 A is not.
 
 ### 5.2 Cascade stages
 
