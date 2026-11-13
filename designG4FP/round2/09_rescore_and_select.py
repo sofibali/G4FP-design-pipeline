@@ -303,7 +303,16 @@ def discover(root: Path, layout: str) -> Dict[Tuple[str, str], List[Path]]:
             design_dir = d.parent
             m = re.search(r"design_(\d+)", design_dir.name)
             design_id = m.group(1) if m else design_dir.name
-            template = design_dir.parent.name.replace("output_", "")
+            # Walk up for the per-template output directory.  On the lab server
+            # the tree is output_G4FP_<tpl>/03_alphafold3_predictions_<state>/
+            # design_NNNN/seed-N_sample-M/, so the immediate grandparent is the
+            # state directory, not the template.
+            template = design_dir.parent.name
+            for anc in design_dir.parents:
+                if anc.name.startswith("output_"):
+                    template = anc.name
+                    break
+            template = template.replace("output_", "")
             found[(template, design_id)].extend(models)
     return found
 

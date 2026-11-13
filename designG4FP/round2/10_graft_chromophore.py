@@ -230,6 +230,40 @@ def write_pdb(atoms: List[dict], path: Path) -> None:
 
 
 FLAT_RE = re.compile(r"_d(\d{3,5})_s(\d+)\.(cif|pdb)$")
+SEED_RE = re.compile(r"^seed-\d+_sample-\d+$")
+
+
+def discover_models(root: Path) -> Dict[Tuple[str, str], Path]:
+    """Return {(template, design_id): one representative model path}.
+
+    Handles two layouts:
+      flat      <tpl>/<prefix>_<tpl>_d<NNNN>_s<k>.cif   (Drive export)
+      af3 tree  output_G4FP_<tpl>/..._predictions_*/design_<NNNN>/
+                seed-N_sample-M/*model*.cif             (lab server)
+    """
+    found: Dict[Tuple[str, str], Path] = {}
+    for cif in sorted(root.rglob("*")):
+        if cif.suffix.lower() not in (".cif", ".pdb"):
+            continue
+        m = FLAT_RE.search(cif.name)
+        if m:
+            found.setdefault((cif.parent.name, m.group(1)), cif)
+            continue
+        d = cif.parent
+        if not SEED_RE.match(d.name) or "model" not in cif.name:
+            continue
+        design_dir = d.parent
+        dm = re.search(r"design_(\d+)", design_dir.name)
+        if not dm:
+            continue
+        template = design_dir.parent.name
+        for anc in design_dir.parents:
+            if anc.name.startswith("output_"):
+                template = anc.name
+                break
+        template = template.replace("output_", "").replace("G4FP_", "")
+        found.setdefault((template, dm.group(1)), cif)
+    return found
 
 
 def main():
@@ -243,7 +277,10 @@ def main():
     ap.add_argument("--radius", type=float, default=15.0,
                     help="superposition radius around the chromophore (A)")
     ap.add_argument("--seed-only", default="s0",
-                    help="model suffix to convert, or 'all'")
+                    help="flat layout only: model suffix to convert, or 'all'")
+    ap.add_argument("--only", type=Path, default=None,
+                    help="CSV with a global_id column -- graft just those designs "
+                         "(e.g. 11_selected.csv)")
     args = ap.parse_args()
 
     templates = {}
@@ -254,18 +291,24 @@ def main():
     print(f"{len(templates)} templates loaded")
 
     args.out.mkdir(parents=True, exist_ok=True)
+    only = None
+    if args.only:
+        sel = pd.read_csv(args.only)
+        col = "global_id" if "global_id" in sel.columns else sel.columns[0]
+        only = {str(g).replace("G4FP_", "") for g in sel[col]}
+        print(f"restricting to {len(only)} designs listed in {args.only.name}")
+
     rows = []
-    models = [p for p in args.models.rglob("*") if p.suffix.lower() in (".cif", ".pdb")]
-    for m in sorted(models):
-        mm = FLAT_RE.search(m.name)
-        if not mm:
+    discovered = discover_models(args.models)
+    print(f"{len(discovered)} designs discovered under {args.models}")
+    for (tpl_key, design_id), m in sorted(discovered.items()):
+        gid = f"{tpl_key}_design_{design_id}"
+        if only is not None and gid not in only:
             continue
-        if args.seed_only != "all" and not m.name.endswith(f"_{args.seed_only}{m.suffix}"):
-            continue
-        tpl_key = m.parent.name
         if tpl_key not in templates:
-            print(f"  SKIP {m.name}: no template named {tpl_key}")
+            print(f"  SKIP {gid}: no template named {tpl_key}")
             continue
+        mm = type("M", (), {"group": staticmethod(lambda i, v=design_id: v)})
         try:
             atoms, rep = graft(load_any(m), load_any(templates[tpl_key]), args.radius)
         except ValueError as e:

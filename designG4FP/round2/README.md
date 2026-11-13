@@ -3,8 +3,14 @@
 Everything for the second design round lives in this directory. Nothing outside
 `designG4FP/round2/` is modified by this work.
 
-Prepared November 2026. Division of labour unchanged: LigandMPNN is run on
-Kielen's side and committed here; AlphaFold3 runs on Sofia's lab server.
+Prepared November 2026.
+
+**Division of labour (revised).** All 1,000 round-1 AF3 predictions live on the
+lab server, and neither Drive (36 designs) nor git (zero `.cif`, excluded by
+`.gitignore`) has them. Rescoring and selection therefore run *there*, not
+here: Sofia runs `09_rescore_and_select.py`, `11_cascade.py` and
+`10_graft_chromophore.py` per `RUNBOOK_SERVER.md` and commits the small outputs
+back to this branch. AlphaFold3 prediction stays on the lab server as before.
 
 ---
 
@@ -164,6 +170,7 @@ symmetry, but it means some round-2 designs will lose both.
 | `09_rescore_and_select.py` | corrected chromophore metrics, fitness, Pareto, top-N per template — **superseded as a selector by `11_cascade.py`**, still used to build the metric table |
 | `10_graft_chromophore.py` | grafts the mature CRO back into AF3 models and writes PDB for LigandMPNN |
 | `11_cascade.py` | staged gate cascade; the selector (see 5.2) |
+| `RUNBOOK_SERVER.md` | **step-by-step instructions for running steps 09/11/10 on the lab server** |
 | `MISSING_STRUCTURES.md` | the 7 tested variants with no AF3 structure anywhere |
 | `09_results/`, `11_results/` | outputs of the partial local run (36 designs only — see below) |
 | `inputs_round2/` | the 36 CRO-grafted PDBs, `<template>_d<NNNN>_CRO.pdb`, plus `10_graft_report.csv` |
