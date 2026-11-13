@@ -1,0 +1,17 @@
+{
+  "iteration": 1,
+  "keep": {
+    "fold": 0.6,
+    "bind": 0.6,
+    "switch": 0.5,
+    "apo_hi": 0.95
+  },
+  "absolute": {
+    "holo_mean_plddt_min": 70.0,
+    "holo_ptm_min": 0.5,
+    "holo_iptm_min": 0.3,
+    "apo_vs_template_min": 0.0
+  },
+  "n_in": 1010,
+  "n_out": 12
+}

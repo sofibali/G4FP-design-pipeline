@@ -1,0 +1,13 @@
+group,criterion,threshold,removed,n_remaining,note
+APO,apo_plddt_vs_template >= 0.0 (lower edge: below this sat all 19 dark round-1 variants),0.0,730,280,
+APO,apo_plddt_vs_template <= P95 (upper edge: too far above template is ligand-independent folding),2.168,50,230,
+FOLD,holo_mean_plddt >= 70.0 (absolute),70.0,0,230,
+FOLD,holo_mean_plddt >= P40,83.788,42,188,
+FOLD,holo_ptm >= 0.5 (absolute),0.5,0,188,
+FOLD,holo_ptm >= P40,0.734,79,109,
+FOLD,holo_chromophore_plddt >= P40 (chromophore ordered in the ON state),93.033,18,91,
+BIND,holo_iptm >= 0.3 (absolute),0.3,0,91,
+BIND,holo_iptm >= P40,0.452,48,43,
+BIND,holo_interface_pae <= P60 (interface error),19.492,3,40,
+SWITCH,chromophore_plddt_diff >= P50 (chromophore pLDDT holo-apo),2.417,15,25,
+SWITCH,chromophore_rmsd >= P50 (chromophore RMSD holo vs apo),0.034,13,12,

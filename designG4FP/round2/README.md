@@ -169,7 +169,8 @@ symmetry, but it means some round-2 designs will lose both.
 |---|---|
 | `09_rescore_and_select.py` | corrected chromophore metrics, fitness, Pareto, top-N per template — **superseded as a selector by `11_cascade.py`**, still used to build the metric table |
 | `10_graft_chromophore.py` | grafts the mature CRO back into AF3 models and writes PDB for LigandMPNN |
-| `11_cascade.py` | staged gate cascade; the selector (see 5.2) |
+| `11_cascade.py` | first-pass gate cascade — **superseded by `12_iterate.py`**, which adds the SWITCH group and iteration |
+| `12_iterate.py` | the selector: four gate groups, percentile thresholds tightening per iteration (see 6) |
 | `RUNBOOK_SERVER.md` | **step-by-step instructions for running steps 09/11/10 on the lab server** |
 | `MISSING_STRUCTURES.md` | the 7 tested variants with no AF3 structure anywhere |
 | `09_results/`, `11_results/` | outputs of the partial local run (36 designs only — see below) |
@@ -320,3 +321,94 @@ stricter trans screen on the 22 hits; the two correlate at Pearson r = 0.91.
 G4FP tested 21. With two positives from a single template, no computational
 metric can be validated on round-1 data -- the binding constraint is the size
 of the experimental screen, not the sophistication of the score.
+
+
+---
+
+## 6. The iterative pipeline (`12_iterate.py`)
+
+`11_cascade.py` was a single pass and tested the wrong things: it had no
+ligand-dependence criterion at all, so a construct equally well folded with and
+without G4 passed every gate. That is the pKZ168 phenotype. `12_iterate.py`
+replaces it.
+
+### 6.1 Four gate groups, matched to the goal
+
+| group | question | metrics |
+|---|---|---|
+| APO | is the unbound state in the usable window? | `apo_plddt_vs_template` between a floor and an upper edge |
+| FOLD | is the bound state a real, maturable barrel? | holo pLDDT, holo pTM, holo chromophore pLDDT |
+| BIND | does it engage the G4? | holo iPTM, interface PAE |
+| SWITCH | does the chromophore environment change on binding? | chromophore pLDDT holo-apo, chromophore RMSD holo vs apo |
+
+The APO gate is a **window**, not a floor. Below the floor sat all 19
+experimentally dark round-1 variants; above the upper edge is where
+ligand-independent folding lives. Round 1 sampled only below the floor, so the
+upper edge is still uncharacterised and the default is a percentile.
+
+### 6.2 Why the switch gate is chromophore-local
+
+Measured across the 1,000 round-1 designs:
+
+| switch metric | corr. with `apo_plddt_vs_template` | clear apo floor AND top quartile |
+|---|---|---|
+| `mean_plddt_diff` | **-0.321** (p = 2e-25) | 20 / 280 |
+| `global_rmsd` | -0.052 (p = 0.10) | 44 / 280 |
+| `chromophore_plddt_diff` | **+0.277** (p = 4e-19) | 106 / 280 |
+| `chromophore_rmsd` | **+0.518** (p = 1e-69) | 145 / 280 |
+
+A design cannot unfold globally when apo and still mature its chromophore --
+maturation needs the folded barrel. Demanding a large *global* holo-apo
+difference therefore selects against fluorescence itself and leaves almost
+nothing (20 of 1,000). The chromophore-local measures carry the switch without
+that conflict, and match the GCaMP mechanism: the barrel persists, the
+chromophore environment changes.
+
+### 6.3 Percentile thresholds, tightening per iteration
+
+| iteration | keep FOLD | keep BIND | keep SWITCH | APO upper edge |
+|---|---|---|---|---|
+| 1 | 0.60 | 0.60 | 0.50 | P95 |
+| 2 | 0.40 | 0.40 | 0.35 | P90 |
+| 3 | 0.25 | 0.25 | 0.25 | P85 |
+
+Plus absolute floors that never relax: holo pLDDT >= 70, holo pTM >= 0.5,
+holo iPTM >= 0.3, `apo_plddt_vs_template` >= 0.
+
+The paper's absolute cutoffs (apo pLDDT > 82 -> 85 -> 86, complex > 92) are
+calibrated against a crystal-structure theozyme and do not transfer. Percentiles
+self-calibrate to whatever the corrected metrics look like and tighten
+monotonically by construction.
+
+### 6.4 The loop
+
+```
+survivors -> 10_graft_chromophore.py --only 12_next_round_inputs.csv
+          -> LigandMPNN redesign
+          -> AF3 holo + apo                      (lab server)
+          -> 09_rescore_and_select.py
+          -> 12_iterate.py --iteration N+1 --previous iterN/12_survivors.csv
+          -> survivors
+```
+
+`--previous` enforces the paper's rule that a design must pass **both before
+and after** a design/prediction cycle.
+
+### 6.5 Demonstration run
+
+On the 1,010 round-1 designs: 1010 → 280 (APO floor) → 230 (APO upper) → 91
+(FOLD) → 40 (BIND) → **12** (SWITCH), from two templates
+(`r28_l1_cro_mod2` 10, `des1_cro_mod0` 2).
+
+Both experimentally fluorescent variants are rejected, and the reason matters:
+
+- **design_0016 (pKZ168)** passes APO, FOLD and BIND and fails **only** the
+  chromophore-RMSD switch gate. That is the pipeline working — 168 is the
+  self-stabilized construct and the switch gate is what should exclude it.
+- **design_0072 (pKZ169)** fails holo pTM, interface PAE and chromophore
+  pLDDT difference.
+
+Caveat on this demo: it runs on the round-1 table, whose chromophore columns
+carry defect (1) and whose interface metrics come from models that all have
+10-37 clashing protein-DNA atom pairs. The specific survivors are therefore
+not meaningful; the gate mechanics and the rejection reasons are.

@@ -106,7 +106,42 @@ near the bottom, that is informative and expected — see README §2.
 
 ---
 
-## 2. Select round-2 inputs with the staged cascade
+## 2. Filter with the iterative pipeline
+
+```bash
+python 12_iterate.py \
+    --table     09_results_full/09_all_designs_rescored.csv \
+    --iteration 1 \
+    --validate  tested_variants.csv \
+    --out       iter1
+```
+
+Four gate groups — APO (a window), FOLD, BIND, SWITCH — with percentile
+thresholds that tighten at iteration 2 and 3. The per-criterion trace prints
+as it runs and is written to `iter1/12_gate_trace.csv`.
+
+On later rounds add `--previous iter1/12_survivors.csv`, which enforces that a
+design passed **both before and after** the design/prediction cycle.
+
+**Check before moving on**
+
+- The APO floor should remove roughly 70% of the pool (730 of 1,010 in the
+  demo run). If it removes nothing, `apo_plddt_vs_template` is NaN — go back
+  to step 1.
+- Every group should print real thresholds, not `metric unavailable --
+  SKIPPED`. A skipped SWITCH group means no ligand-dependence is being tested
+  at all, which defeats the purpose; it needs `--apo-root` in step 1.
+- Expect of order 10-50 survivors at iteration 1 from a 1,000-design pool.
+
+`iter1/12_next_round_inputs.csv` is the handoff to step 3.
+
+### 2b. (superseded) `11_cascade.py`
+
+Kept for reference only. It has no SWITCH group, so a construct equally folded
+with and without G4 passes every gate — the pKZ168 phenotype. Use
+`12_iterate.py`.
+
+## 2c. Select round-2 inputs with the staged cascade (legacy)
 
 ```bash
 python 11_cascade.py \
@@ -150,7 +185,7 @@ why. Every threshold is a flag if you want to explore:
 python 10_graft_chromophore.py \
     --models    "$HOLO" \
     --templates ../inputs \
-    --only      11_results_full/11_selected.csv \
+    --only      iter1/12_next_round_inputs.csv \
     --out       inputs_round2_full
 ```
 
