@@ -492,7 +492,12 @@ def main():
     src.add_argument("--cif-root", type=Path, help="Directory tree of exported model CIFs")
     ap.add_argument("--layout", choices=["auto", "af3", "flat"], default="auto")
     ap.add_argument("--apo-root", type=Path, default=None,
-                    help="Optional matching apo tree; enables apo and delta metrics")
+                    help="Matching apo prediction tree; enables apo and delta metrics")
+    ap.add_argument("--template-apo-root", type=Path, default=None,
+                    help="AF3 apo predictions of the 10 TEMPLATES. Required to "
+                         "compute apo_plddt_vs_template from structures; without "
+                         "it the metric can only come from --round1-table, and the "
+                         "committed copy has it all-NaN")
     ap.add_argument("--round1-table", type=Path, default=None,
                     help="07_all_designs_scored.csv -- merged for RMSD / apo_plddt_vs_template")
     ap.add_argument("--out", type=Path, required=True)
@@ -538,6 +543,33 @@ def main():
             df["chromophore_plddt_diff_fixed"] = (df["holo_chromophore_plddt_fixed"]
                                                   - df["apo_chromophore_plddt_fixed"])
 
+    # ---- compute apo_plddt_vs_template from structures where possible -----
+    # This metric drives stage B of the cascade.  It must NOT be taken from
+    # the committed 07_all_designs_scored.csv, where it is NaN for all 1000
+    # designs -- that is round-1 defect (3).  Computing it here from the apo
+    # predictions of the designs and of their parent templates is the fix.
+    if args.template_apo_root:
+        tpl_apo = collect(args.template_apo_root, args.layout, "apo", fallback)
+        ref = {}
+        for _, row in tpl_apo.iterrows():
+            key = norm_id(str(row.get("template", "")))
+            val = row.get("apo_mean_plddt")
+            if pd.notna(val):
+                ref.setdefault(key, []).append(float(val))
+        ref = {k: float(np.mean(v)) for k, v in ref.items()}
+        if "apo_mean_plddt" in df.columns and ref:
+            df["apo_plddt_vs_template"] = [
+                (a - ref[k]) if (pd.notna(a) and k in ref) else np.nan
+                for a, k in zip(df["apo_mean_plddt"],
+                                df["template"].map(lambda t: norm_id(str(t))))
+            ]
+            n_ok = int(df["apo_plddt_vs_template"].notna().sum())
+            print(f"computed apo_plddt_vs_template from structures for "
+                  f"{n_ok}/{len(df)} designs, against {len(ref)} template references")
+        else:
+            print("WARNING: --template-apo-root given but apo design metrics are "
+                  "missing; pass --apo-root as well.")
+
     if args.round1_table and args.round1_table.exists():
         r1 = pd.read_csv(args.round1_table)
         bring = [c for c in ("global_id", "global_rmsd", "apo_plddt_vs_template",
@@ -559,6 +591,17 @@ def main():
             if len(bring) > 1 else 0
         print(f"Merged {len(bring) - 1} columns from {args.round1_table.name} "
               f"({n_matched}/{len(df)} designs matched)")
+
+    # Loud failure rather than a silently inert term (round-1 defect 3).
+    if ("apo_plddt_vs_template" not in df.columns
+            or df["apo_plddt_vs_template"].notna().sum() == 0):
+        print("\n*** apo_plddt_vs_template is EMPTY for every design. ***\n"
+              "    The cascade's foldability gate cannot run and the rel_apo term\n"
+              "    will be inert -- exactly the round-1 defect this pipeline fixes.\n"
+              "    The committed 07_all_designs_scored.csv has this column all-NaN;\n"
+              "    pass --apo-root AND --template-apo-root to compute it from\n"
+              "    structures, or point --round1-table at a copy that has it\n"
+              "    populated (the Drive copy does).\n")
 
     weights = {k: getattr(args, f"w_{k}") for k in DEFAULT_WEIGHTS}
     print("\nWeights:", {k: round(v, 3) for k, v in weights.items()},
