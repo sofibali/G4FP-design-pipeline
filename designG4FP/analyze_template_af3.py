@@ -95,6 +95,7 @@ def analyze_seed(seed_dir: Path, chain_id: str = 'A') -> Optional[Dict]:
             result['mean_pae'] = float(np.mean(pae_arr))
 
             # Interface PAE (protein vs DNA)
+            token_chains = fc.get('token_chain_ids', [])
             if token_chains:
                 n_prot = sum(1 for ch in token_chains if ch == chain_id)
                 if pae_arr.ndim == 2 and pae_arr.shape[0] > n_prot:

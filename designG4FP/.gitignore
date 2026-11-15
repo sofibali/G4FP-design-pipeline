@@ -1,3 +1,5 @@
 # Temp files and caches (pipeline-specific rules in root .gitignore)
 _temp_*.yaml
 __pycache__/
+round1_snapshot/
+analysis_logs/
