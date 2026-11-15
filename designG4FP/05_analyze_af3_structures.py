@@ -30,38 +30,16 @@ import seaborn as sns
 from Bio.PDB import PDBParser, MMCIFParser, Superimposer
 
 
-def detect_chromophore_range(output_dir: Path) -> Tuple[int, int]:
-    """Detect chromophore position from the CRO residue in the template PDB.
+from chromophore_utils import (  # shared: one implementation to fix
+    THREE2ONE,
+    CHROMOPHORE_MOTIF,
+    parse_cif_atoms,
+    chain_sequence,
+    find_model_cif,
+    detect_chromophore_range,
+    compute_per_residue_plddt,
+)
 
-    The template PDB contains a CRO HETATM residue at the chromophore site.
-    AF3 expands CRO into three standard residues (Thr-Tyr-Gly) at the same
-    residue index.  Since CRO occupies one residue number but becomes 3
-    residues in AF3, the chromophore spans (cro_resid, cro_resid + 2) in
-    the AF3 auth_seq_id numbering.
-
-    Returns 1-indexed (start, end) for use as ``array[start-1 : end]``.
-    """
-    # Find the template PDB in the inputs/ directory
-    tpl_name = output_dir.name.replace("output_", "")
-    inputs_dir = output_dir.parent / "inputs"
-    tpl_pdb = inputs_dir / f"{tpl_name}.pdb"
-
-    if tpl_pdb.exists():
-        with open(tpl_pdb) as f:
-            for line in f:
-                if (line.startswith("ATOM") or line.startswith("HETATM")) and \
-                   line[17:20].strip() == "CRO":
-                    cro_resid = int(line[22:26].strip())
-                    # CRO → TYG: 1 residue becomes 3, starting at cro_resid
-                    cs = cro_resid
-                    ce = cro_resid + 2
-                    print(f"  Chromophore: CRO at PDB residue {cro_resid} "
-                          f"→ TYG at {cs}-{ce} (from {tpl_pdb.name})")
-                    return (cs, ce)
-
-    print(f"  WARNING: No CRO found in template PDB for {output_dir.name}, "
-          f"falling back to (197, 199)")
-    return (197, 199)
 
 warnings.filterwarnings('ignore')
 sns.set_style("whitegrid")
@@ -95,31 +73,6 @@ def discover_seed_sample_dirs(design_dir: Path) -> List[Tuple[int, int, Path]]:
                 if dirs:
                     break
     return sorted(dirs)
-
-
-def compute_per_residue_plddt(full_conf: Dict, chain_id: str = 'A') -> Optional[np.ndarray]:
-    """Compute per-residue pLDDT from atom_plddts filtered to a chain."""
-    if 'atom_plddts' not in full_conf or 'atom_chain_ids' not in full_conf:
-        return None
-    atom_plddts = np.array(full_conf['atom_plddts'])
-    atom_chains = full_conf['atom_chain_ids']
-    chain_mask = np.array([ch == chain_id for ch in atom_chains])
-    chain_plddts = atom_plddts[chain_mask]
-    if len(chain_plddts) == 0:
-        return None
-    if 'token_chain_ids' in full_conf:
-        token_chains = full_conf['token_chain_ids']
-        n_residues = sum(1 for ch in token_chains if ch == chain_id)
-        if n_residues > 0:
-            atoms_per_residue = len(chain_plddts) / n_residues
-            per_res = []
-            for i in range(n_residues):
-                start = int(round(i * atoms_per_residue))
-                end = int(round((i + 1) * atoms_per_residue))
-                if start < len(chain_plddts):
-                    per_res.append(np.mean(chain_plddts[start:end]))
-            return np.array(per_res)
-    return chain_plddts
 
 
 def find_af3_result_dir(base_dir: Path) -> Optional[Path]:
@@ -204,7 +157,7 @@ def load_template_metrics(base_dir: Path, chromophore_range: Optional[Tuple[int,
                 if ff.exists():
                     with open(ff) as f:
                         fc = json.load(f)
-                    plddt = compute_per_residue_plddt(fc, 'A')
+                    plddt = compute_per_residue_plddt(fc, 'A', model_dir=sd)
                     if plddt is not None and len(plddt) > 1:
                         plddts.append(float(np.mean(plddt)))
                         cs, ce = cr
@@ -363,7 +316,7 @@ class AlphaFoldStructureAnalyzer:
             try:
                 with open(ff) as f:
                     fc = json.load(f)
-                plddt = compute_per_residue_plddt(fc, 'A')
+                plddt = compute_per_residue_plddt(fc, 'A', model_dir=seed_dir)
                 if plddt is not None and len(plddt) > 1:
                     result['mean_plddt'] = float(np.mean(plddt))
                     result['min_plddt'] = float(np.min(plddt))
@@ -414,7 +367,7 @@ class AlphaFoldStructureAnalyzer:
         if full_files:
             with open(full_files[0]) as f:
                 fc = json.load(f)
-            plddt = compute_per_residue_plddt(fc, 'A')
+            plddt = compute_per_residue_plddt(fc, 'A', model_dir=design_dir)
             if plddt is not None and len(plddt) > 1:
                 result['mean_plddt'] = float(np.mean(plddt))
                 result['min_plddt'] = float(np.min(plddt))
