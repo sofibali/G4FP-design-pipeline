@@ -56,3 +56,18 @@ outputs/
 
 # ThermoMPNN (separate project)
 ThermoMPNN/
+
+# ---- Bulk model output: regenerable, kept locally, indexed in MANIFEST.md ----
+# LigandMPNN per-design structures and stats tensors (~57 GB)
+designG4FP/output_*/01_ligandmpnn/backbones/
+designG4FP/output_*/01_ligandmpnn/packed/
+designG4FP/output_*/01_ligandmpnn/stats/
+# AF3 template prediction outputs
+designG4FP/template_af3_outputs/
+# PyMOL sessions (rebuild with build_pymol_session.py)
+*.pse
+# AF3 input JSONs (embedded MSAs; regenerable via 02_filter_and_prepare_af3.py + MSA phase)
+designG4FP/output_*/02_alphafold3_inputs_bound/
+designG4FP/output_*/02_alphafold3_inputs_apo/
+# Superseded test tree (10.3 GB)
+designG4FP/archive/test_designG4FP/
