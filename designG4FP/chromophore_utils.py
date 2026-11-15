@@ -114,6 +114,20 @@ def find_model_cif(d: Path) -> Optional[Path]:
     return hits[0] if hits else None
 
 
+def triad_start_in_sequence(seq: str) -> Optional[int]:
+    """0-based index of the T of the TYG triad in *seq*, or None.
+
+    A bare "TYG" search is NOT safe: every one of these designs carries a
+    spurious TYG roughly 170 residues in.  The surrounding cpGFP context is
+    what makes the match reliable.
+    """
+    for pattern in (CHROMOPHORE_MOTIF, CHROMOPHORE_MOTIF_LOOSE):
+        m = pattern.search(seq)
+        if m:
+            return m.start(1)
+    return None
+
+
 def detect_chromophore_range(output_dir: Path) -> Tuple[int, int]:
     """Locate the Thr-Tyr-Gly triad in AF3 SEQUENTIAL numbering.
 

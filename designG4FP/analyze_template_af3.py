@@ -20,6 +20,14 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional, Dict, List
 
+from chromophore_utils import (  # shared: one implementation to fix
+    parse_cif_atoms,
+    chain_sequence,
+    find_model_cif,
+    triad_start_in_sequence,
+    compute_per_residue_plddt,
+)
+
 
 def discover_seed_dirs(result_dir: Path) -> List[Path]:
     """Find seed-N_sample-M directories."""
@@ -65,31 +73,20 @@ def analyze_seed(seed_dir: Path, chain_id: str = 'A') -> Optional[Dict]:
         with open(conf_files[0]) as f:
             fc = json.load(f)
 
-        # Per-residue pLDDT for chain
-        plddts = fc.get('atom_plddts', [])
-        chain_ids = fc.get('atom_chain_ids', [])
-        if plddts and chain_ids:
-            chain_plddts = [p for p, c in zip(plddts, chain_ids) if c == chain_id]
-            if chain_plddts:
-                result['mean_plddt'] = float(np.mean(chain_plddts))
+        # Per-residue pLDDT, grouped by ACTUAL residue id (see
+        # chromophore_utils for why the old uniform-bin estimate was wrong),
+        # and the chromophore located by motif rather than a hardcoded index.
+        plddt = compute_per_residue_plddt(fc, chain_id, model_dir=seed_dir)
+        if plddt is not None and len(plddt) > 1:
+            result['mean_plddt'] = float(np.mean(plddt))
 
-                # Chromophore pLDDT (residues 197-199, TYG)
-                # Estimate atoms per residue to extract chromophore
-                token_chains = fc.get('token_chain_ids', [])
-                if token_chains:
-                    n_residues = sum(1 for ch in token_chains if ch == chain_id)
-                    if n_residues > 0:
-                        atoms_per_res = len(chain_plddts) / n_residues
-                        # Chromophore at residues 197-199 (0-indexed: 196-198)
-                        cs, ce = 196, 199  # 0-indexed start, exclusive end
-                        if n_residues >= ce:
-                            chrom_atoms = []
-                            for ri in range(cs, ce):
-                                start = int(round(ri * atoms_per_res))
-                                end = int(round((ri + 1) * atoms_per_res))
-                                chrom_atoms.extend(chain_plddts[start:end])
-                            if chrom_atoms:
-                                result['chromophore_plddt'] = float(np.mean(chrom_atoms))
+            cif = find_model_cif(seed_dir)
+            if cif is not None:
+                seq, _order = chain_sequence(parse_cif_atoms(cif), chain_id)
+                cs = triad_start_in_sequence(seq)   # 0-based
+                if cs is not None and len(plddt) >= cs + 3:
+                    result['chromophore_plddt'] = float(np.mean(plddt[cs:cs + 3]))
+                    result['chromophore_start'] = cs + 1   # 1-based, for the record
 
         # PAE
         pae = fc.get('pae', [])
@@ -256,6 +253,12 @@ def main():
             n_match = min(len(holo_seeds), len(apo_seeds))
             rmsds = []
             chrom_rmsds = []
+            # KNOWN BROKEN: this fits a Superimposer to three CA atoms and
+            # reports the residual. Three points always superimpose onto
+            # three points, so chromophore_rmsd spans 0.004-0.16 A across
+            # all designs and measures nothing. Not used by the fitness
+            # score. Fixing it needs superposition on the barrel core,
+            # then RMSD over the triad without re-fitting.
             cs, ce = 196, 199  # 0-indexed chromophore range
 
             for i in range(n_match):
