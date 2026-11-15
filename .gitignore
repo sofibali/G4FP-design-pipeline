@@ -71,3 +71,6 @@ designG4FP/output_*/02_alphafold3_inputs_bound/
 designG4FP/output_*/02_alphafold3_inputs_apo/
 # Superseded test tree (10.3 GB)
 designG4FP/archive/test_designG4FP/
+# Superseded / duplicate AF3 template prediction runs
+designG4FP/template_af3_wrong/
+designG4FP/template_af3_outputs_full/
