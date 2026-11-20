@@ -1,0 +1,149 @@
+==============================================================================
+ROUND-1 RESCORING + REGATING -- cheap analysis, nothing was generated
+==============================================================================
+  rescored table : 19_all_designs_rescored_full.csv  (1000 rows)
+  gate table     : 14_regroup_failuremode.csv  (999 rows)
+  tested variants: tested_variants.csv  (21 rows)
+
+  joined on global_id: 999 of 999 gate rows matched a rescored row
+  of those, 999 carry a fitness_score
+
+1. Gate cascade over the joined population (N = 999)
+------------------------------------------------------------------------------
+   gate        reached   passed     cond.
+   CONTACT         999      298     29.8 %
+   NEGATIVE        298      197     66.1 %
+   BIND            197      101     51.3 %
+   SWITCH          101       71     70.3 %
+
+   PASS all four: 71  (7.11 % of 999)
+
+   first gate failed:
+     CONTACT_no_interface    701  (70.2 %)
+     NEGATIVE_pre_closed     101  (10.1 %)
+     BIND_weak_interface      96  ( 9.6 %)
+     PASS                     71  ( 7.1 %)
+     SWITCH_no_contrast       30  ( 3.0 %)
+
+2. Survivors per template
+------------------------------------------------------------------------------
+   G4FP_des1_cro_mod4      47 / 100    47.0 %
+   G4FP_r28_l2_cro_mod2     9 / 100     9.0 %
+   G4FP_r28_l3_cro_mod2     9 / 100     9.0 %
+   G4FP_r28_l2_cro_mod3     3 / 100     3.0 %
+   G4FP_r28_l3_cro_mod0     2 / 100     2.0 %
+   G4FP_r28_l1_cro_mod2     1 /  99     1.0 %
+   G4FP_des1_cro_mod0       0 / 100     0.0 %
+   G4FP_r20_l1_cro_mod0     0 / 100     0.0 %
+   G4FP_r20_l2_cro_mod2     0 / 100     0.0 %
+   G4FP_r20_l2_cro_mod3     0 / 100     0.0 %
+
+3. Does the fitness score rank? -- validated against experiment
+------------------------------------------------------------------------------
+   21 of 21 tested designs carry a fitness score.
+
+   global_id                          fitness  rank outcome    gates
+   G4FP_r28_l1_cro_mod2_design_0015    0.8238     1 dark       PASS
+   G4FP_des1_cro_mod4_design_0096      0.8164     2 dark       PASS
+   G4FP_r20_l1_cro_mod0_design_0020    0.7589     3 dark       NEGATIVE
+   G4FP_r28_l3_cro_mod2_design_0025    0.7542     4 dark       PASS
+   G4FP_r28_l2_cro_mod3_design_0024    0.7418     5 dark       PASS
+   G4FP_des1_cro_mod4_design_0038      0.7188     6 dark       PASS
+   G4FP_r28_l3_cro_mod0_design_0006    0.7132     7 dark       CONTACT
+   G4FP_des1_cro_mod4_design_0098      0.6691     8 dark       PASS
+   G4FP_r28_l2_cro_mod3_design_0001    0.6546     9 dark       PASS
+   G4FP_r20_l1_cro_mod0_design_0058    0.6509    10 dark       NEGATIVE
+   G4FP_r28_l3_cro_mod0_design_0037    0.6473    11 dark       CONTACT
+   G4FP_des1_cro_mod4_design_0006      0.6323    12 dark       PASS
+   G4FP_des1_cro_mod4_design_0030      0.6125    13 dark       PASS
+   G4FP_des1_cro_mod4_design_0043      0.6102    14 dark       PASS
+   G4FP_r28_l3_cro_mod0_design_0027    0.6102    15 dark       CONTACT
+   G4FP_r28_l2_cro_mod2_design_0016    0.6002    16 fluorescent SWITCH  <<<
+   G4FP_r20_l1_cro_mod0_design_0087    0.5590    17 dark       NEGATIVE
+   G4FP_r28_l2_cro_mod3_design_0051    0.5510    18 dark       CONTACT
+   G4FP_r28_l2_cro_mod2_design_0072    0.5075    19 fluorescent_lead BIND  <<<
+   G4FP_r28_l2_cro_mod3_design_0056    0.4838    20 dark       BIND
+   G4FP_r28_l2_cro_mod3_design_0094    0.4526    21 dark       CONTACT
+
+   AUC of fitness_score for predicting fluorescence: 0.158
+     0.5 = coin flip | >0.5 = ranks correctly | <0.5 = inverted
+   exact permutation P(AUC <= observed) = 16/210 = 0.076
+   NOT significant at 2 positives. The point estimate is on the
+   wrong side of chance; nothing here argues the score ranks.
+
+
+   positives at rank(s) 16, 19 of 21
+   mean rank of positives : 17.5
+   expected if score were random : 11.0
+   -> the positives rank BELOW chance. The score is not merely
+      uninformative here; it points the wrong way.
+   n = 2 positives. This cannot establish inversion, but it is
+   the only labelled data there is, and it does not support ranking.
+
+4. Top set -- gates, then diversity. NOT ordered by score.
+------------------------------------------------------------------------------
+   rule: must PASS all four gates; at most 4 per template;
+         within a template, spread evenly across the dPAE range.
+   selected 18 designs from 6 templates
+
+   global_id                            dPAE  iPAE_ap   n_cont   fitness
+   G4FP_des1_cro_mod4_design_0006       3.64    22.60      5.0    0.6323
+   G4FP_des1_cro_mod4_design_0050       4.63    24.03      6.0    0.4192
+   G4FP_des1_cro_mod4_design_0095       6.01    24.94      4.0    0.5075
+   G4FP_des1_cro_mod4_design_0097       5.70    24.25      3.0    0.4206
+   G4FP_r28_l1_cro_mod2_design_0015     6.37    19.36      7.0    0.8238
+   G4FP_r28_l2_cro_mod2_design_0063     3.47    23.56      4.0    0.4038
+   G4FP_r28_l2_cro_mod2_design_0081     4.19    19.76      5.0    0.5471
+   G4FP_r28_l2_cro_mod2_design_0094     3.66    19.42      7.0    0.5964
+   G4FP_r28_l2_cro_mod2_design_0099     3.11    21.15      5.0    0.4921
+   G4FP_r28_l2_cro_mod3_design_0001     4.42    21.38      4.0    0.6546
+   G4FP_r28_l2_cro_mod3_design_0006     4.91    20.89      8.0    0.5701
+   G4FP_r28_l2_cro_mod3_design_0024     6.69    22.02      7.0    0.7418
+   G4FP_r28_l3_cro_mod0_design_0007     5.54    24.26      4.0    0.5129
+   G4FP_r28_l3_cro_mod0_design_0098     4.83    23.48      3.0    0.5902
+   G4FP_r28_l3_cro_mod2_design_0023     3.07    22.16      5.0    0.3045
+   G4FP_r28_l3_cro_mod2_design_0039     5.49    24.35      4.0    0.4097
+   G4FP_r28_l3_cro_mod2_design_0056     6.31    24.39      3.0    0.3805
+   G4FP_r28_l3_cro_mod2_design_0098    10.75    24.31     17.0    0.5371
+
+5. For comparison ONLY -- the same survivors ordered by fitness score
+------------------------------------------------------------------------------
+   Shown so the two lists can be compared, NOT as a recommendation.
+    1. G4FP_r28_l1_cro_mod2_design_0015    0.8238  G4FP_r28_l1_cro_mod2
+    2. G4FP_des1_cro_mod4_design_0096      0.8164  G4FP_des1_cro_mod4
+    3. G4FP_r28_l3_cro_mod2_design_0025    0.7542  G4FP_r28_l3_cro_mod2
+    4. G4FP_r28_l2_cro_mod3_design_0024    0.7418  G4FP_r28_l2_cro_mod3
+    5. G4FP_des1_cro_mod4_design_0038      0.7188  G4FP_des1_cro_mod4
+    6. G4FP_des1_cro_mod4_design_0098      0.6691  G4FP_des1_cro_mod4
+    7. G4FP_des1_cro_mod4_design_0027      0.6592  G4FP_des1_cro_mod4
+    8. G4FP_r28_l2_cro_mod3_design_0001    0.6546  G4FP_r28_l2_cro_mod3
+    9. G4FP_des1_cro_mod4_design_0006      0.6323  G4FP_des1_cro_mod4
+   10. G4FP_des1_cro_mod4_design_0061      0.6224  G4FP_des1_cro_mod4
+   11. G4FP_des1_cro_mod4_design_0030      0.6125  G4FP_des1_cro_mod4
+   12. G4FP_des1_cro_mod4_design_0035      0.6117  G4FP_des1_cro_mod4
+   13. G4FP_des1_cro_mod4_design_0043      0.6102  G4FP_des1_cro_mod4
+   14. G4FP_r28_l2_cro_mod2_design_0094    0.5964  G4FP_r28_l2_cro_mod2
+   15. G4FP_r28_l2_cro_mod2_design_0040    0.5947  G4FP_r28_l2_cro_mod2
+   16. G4FP_des1_cro_mod4_design_0031      0.5933  G4FP_des1_cro_mod4
+   17. G4FP_r28_l3_cro_mod0_design_0098    0.5902  G4FP_r28_l3_cro_mod0
+   18. G4FP_des1_cro_mod4_design_0051      0.5878  G4FP_des1_cro_mod4
+   19. G4FP_des1_cro_mod4_design_0055      0.5826  G4FP_des1_cro_mod4
+   20. G4FP_des1_cro_mod4_design_0001      0.5813  G4FP_des1_cro_mod4
+   21. G4FP_des1_cro_mod4_design_0016      0.5731  G4FP_des1_cro_mod4
+   22. G4FP_r28_l2_cro_mod3_design_0006    0.5701  G4FP_r28_l2_cro_mod3
+   23. G4FP_des1_cro_mod4_design_0008      0.5611  G4FP_des1_cro_mod4
+   24. G4FP_des1_cro_mod4_design_0039      0.5592  G4FP_des1_cro_mod4
+   25. G4FP_des1_cro_mod4_design_0022      0.5548  G4FP_des1_cro_mod4
+   26. G4FP_r28_l2_cro_mod2_design_0086    0.5548  G4FP_r28_l2_cro_mod2
+   27. G4FP_r28_l2_cro_mod2_design_0077    0.5518  G4FP_r28_l2_cro_mod2
+   28. G4FP_des1_cro_mod4_design_0090      0.5512  G4FP_des1_cro_mod4
+   29. G4FP_des1_cro_mod4_design_0002      0.5512  G4FP_des1_cro_mod4
+   30. G4FP_des1_cro_mod4_design_0004      0.5482  G4FP_des1_cro_mod4
+   31. G4FP_r28_l2_cro_mod2_design_0081    0.5471  G4FP_r28_l2_cro_mod2
+   32. G4FP_r28_l2_cro_mod2_design_0024    0.5455  G4FP_r28_l2_cro_mod2
+
+   overlap with the diversity set: 8 of 18
+
+Wrote /home/sbali/LigandMPNN/designG4FP/round2/19_survivors_full.csv (71 rows)
+
+Wrote /home/sbali/LigandMPNN/designG4FP/round2/19_top_set.csv (18 rows)
