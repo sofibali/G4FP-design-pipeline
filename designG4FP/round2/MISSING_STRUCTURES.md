@@ -1,4 +1,26 @@
-# Missing AF3 structures — needed for round 2
+# RESOLVED — the structures were never missing
+
+**Resolved 2026-11-19. Do not act on the request below; no re-prediction is
+needed.** Kept rather than deleted so the episode is not rediscovered.
+
+All seven are on `pollux.fraserlab.com`, dated 2026-03-11, at
+`designG4FP/output_G4FP_<template>/03_alphafold3_predictions_bound/design_<N>_bound/design_<N>_bound_model.cif`
+(`design_0006` → `design_6`). All 21 of the 21 tested variants matched, not 14.
+
+The search that produced this file was correct. `MANIFEST.md` simply did not
+inventory the AF3 predictions — 162,077 files, 59.56 GB — so the repo gave no
+way to learn they existed. That omission is fixed; see `MANIFEST.md` and
+`18_COLLABORATOR_HANDOFF.md`.
+
+One further correction: the request below asks for prediction against a **22-nt
+Myc G4**. Round 1 never used Myc. All ten templates used the 16-nt
+`GGGTGGGTGGGTGGGT`, which is why every threshold in `13_RESCORING_PLAN.md` is
+calibrated against that target.
+
+---
+
+## Original request, superseded
+
 
 Seven of the 21 experimentally tested round-1 variants have **no AlphaFold3
 structure** in the Google Drive project folder or anywhere in this repository.
