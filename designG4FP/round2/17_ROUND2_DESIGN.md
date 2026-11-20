@@ -97,8 +97,8 @@ Unchanged in mechanism from round 1; changed in what each stage is asked to do.
 | Step | What runs | What changed from round 1 |
 |---|---|---|
 | 0 | Fix target, module, switch location (§3) | new — round 1 inherited all three implicitly |
-| 1 | Generate scaffolds around module + dye pocket | new scaffolds, not round-1 backbones |
-| 2 | LigandMPNN, 10k sequences per scaffold, ligand context on | design window 40+40, not the round-1 window |
+| 1 | Generate scaffolds around module + dye pocket | new scaffolds, not round-1 backbones. See §4.1 — RFD4-Proteina is the current tool |
+| 2 | Sequence design | LigandMPNN with the 40+40 window, **or** folded into step 1 if RFD4 is used, which co-designs sequence and structure |
 | 3 | Keep top 1 % (100 per scaffold) | unchanged |
 | 4 | AF3, apo and holo | unchanged |
 | 5 | Gate: CONTACT → NEGATIVE → BIND → SWITCH | thresholds recalibrated if the target changes (§3.1) |
@@ -107,6 +107,74 @@ Unchanged in mechanism from round 1; changed in what each stage is asked to do.
 The gates are non-compensatory and ordered by how much each one kills, cheapest
 and deadliest first. CONTACT stays in front because it removes 70 % of the
 population.
+
+### 4.1 RFD4-Proteina for step 1
+
+Released 15 November 2026 — five days before this was written. Baker Lab and
+NVIDIA GenAIR. Preprint: *Biomolecular design through latent reasoning with
+RFD4-Proteina*, bioRxiv [10.64898/2026.11.12.766037](https://doi.org/10.64898/2026.11.12.766037).
+Code `github.com/RosettaCommons/RFD4-Proteina`, weights `huggingface.co/nvidia/RFD4-Proteina`,
+both BSD-3-Clause. It supersedes RFdiffusion3, which the earlier options
+documents proposed for this step.
+
+**The part that looks most relevant is the part we cannot use.** RFD4 advertises
+a DNA-binder mode. Checked against the official docs and model card:
+
+- The only description of its nucleic-acid conditioning is one figure caption,
+  *"Protein-binder generation conditioned on a DNA duplex."*
+- **G-quadruplexes, single-stranded DNA and non-duplex folds are not mentioned
+  anywhere** — not in the README, the cookbook, the input-prep guide, the
+  annotation reference or the model card. There is no DNA recipe in the cookbook
+  at all; every worked example is protein–protein or small-molecule.
+- The DNA-binder benchmark covers **3 targets**, and the model card says those
+  numbers were measured on a previous release and not re-measured.
+- The preprint's abstract lists what was validated experimentally: binders to
+  therapeutic targets, phosphorylation recognition, glycosylation control, and
+  enzymes including an API-synthesis proof of concept. **No DNA binder appears
+  in that list.** The DNA work is in silico only.
+
+A G-quadruplex is not a duplex. It is four-stranded, built from one G-rich
+sequence, held together by Hoogsteen pairing, and structurally requires
+coordinated K⁺. Nothing in the documentation says the model has seen such a
+thing. Planning the scaffold step around an undocumented input type is the same
+class of mistake as round 1's untested assumptions, and should not be made twice.
+
+**But round 2 does not need de novo G4 recognition.** The architecture grafts a
+*known* G4-binding module (§3.3) into a scaffold. The generator is not being
+asked to invent tetrad recognition — it is being asked to build a scaffold that
+holds a given motif and a dye pocket in fixed relative geometry. That is
+**motif scaffolding plus small-molecule pocket design**, and those are exactly
+the documented, benchmarked, experimentally validated modes. The G4 itself can
+be absent during generation and reintroduced at the AF3 step, where round 1
+already measures contact.
+
+So RFD4 is the right tool for step 1 — on the strength of its enzyme and
+small-molecule work, not its DNA work.
+
+**What it changes downstream.** RFD4 co-designs sequence and all-atom structure
+in one pass and offers inverse folding as a mode, with no hand-off to
+ProteinMPNN or LigandMPNN anywhere in its docs. If it is used, steps 1–3 of the
+table above collapse into one, and the LigandMPNN line disappears from the cost
+model in §5 — which also means **the 40+40 design window, the single
+highest-yield change identified in §2, stops being expressible as a window**.
+It would have to be re-expressed as hotspot or coordinate conditioning on the
+G4-contacting residues. That is a real translation problem, not a detail.
+
+**Practical checks before committing** — none done yet:
+
+| | |
+|---|---|
+| Hardware | Linux x86_64, Python 3.12, NVIDIA GPU, CUDA 13 driver. Tested list includes A100 40/80 GB; the AF3 run notes in this tree reference A100s, but the GPU nodes were not reachable from the login node to confirm. No VRAM figure is published. |
+| Throughput | The only published figure is 41.97 "structurally distinct computational passers per GPU-hour" on the 3 DNA targets, on a previous release. **Not transferable.** There is no measured anchor for this tool on our hardware, which is why §5's scaffold-generation cost stays uncosted. |
+| Licence | BSD-3-Clause for code and weights. The optional refolding oracles (AF2/AF3/OpenFold3-derived) carry upstream licences, some restricting commercial use. |
+| Screening | Hosted Studio runs screen inputs and designs with SecureDNA and refuse flagged requests. A G4-binder campaign submits G-rich DNA sequences. Run locally, or expect to deal with this. |
+| Ions and ligands | Ligands and metals are supported as "atomized regions". K⁺ and rhodamine are therefore plausible as context, but **protein + nucleic acid + small molecule in one job is not documented anywhere**, and that is the combination round 2 needs at the AF3 stage. |
+
+**The honest summary:** RFD4 replaces RFdiffusion3 as step 1's generator, it is
+free and open, and its validated strengths are the ones round 2 actually needs.
+Its DNA capability is not one of them, and no part of the plan should depend on
+it. The pilot in §5 gets more important, not less — it is now the only way to
+measure this tool on this problem.
 
 ---
 
@@ -128,7 +196,11 @@ reconciles exactly to 71/999); high end applies the 40+40 CONTACT uplift
 (12.74 %).
 
 **Scaffold generation is not costed here.** Round 1's ten templates were produced
-before the step this repo times, so those hours are additive to every row.
+before the step this repo times, so those hours are additive to every row. If
+RFD4-Proteina is used (§4.1) the LigandMPNN column disappears — 5.38 h at N2 —
+and is replaced by scaffold-plus-sequence generation for which no measured
+anchor exists on our hardware. Treat the two as roughly offsetting until the
+pilot says otherwise; do not treat that as a measurement.
 
 For comparison, iterating the 71 round-1 survivors costs 308 h (12.8 d) for a
 survivor count between 505 and 4,276. A full new round at the same width as
