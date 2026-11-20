@@ -1,0 +1,79 @@
+# 14_regroup.py
+# generated: 2026-11-17T12:49:24
+# git: a59fca84b
+# source: 13_delta_ipae_module.csv
+# gates: CONTACT n>=3 | NEGATIVE apo iPAE>=8.0 | BIND iPAE<=19.72 (P40) | SWITCH dPAE>3.0
+# failure_mode = FIRST gate failed, in that order
+# units: all *PAE columns in Angstrom; n_module_contact is a residue count
+global_id,tpl,design_id,failure_mode,n_module_contact,ipae_apo,ipae_holo,dpae,dpae_contact,bind_ipae_holo,bind_pae_min,iptm_holo,ptm_holo,ok_contact,ok_negative,ok_bind,ok_switch
+G4FP_r28_l3_cro_mod2_design_0038,G4FP_r28_l3_cro_mod2,design_38,PASS,14.0,24.6211,12.9417,11.6794,12.6056,11.3475,4.94,0.65,0.82,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0025,G4FP_r28_l3_cro_mod2,design_25,PASS,19.0,23.0002,11.8857,11.1145,10.2715,8.5445,2.85,0.82,0.84,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0098,G4FP_r28_l3_cro_mod2,design_98,PASS,17.0,24.3116,13.5596,10.752,12.545,10.2691,4.01,0.75,0.83,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0040,G4FP_r28_l2_cro_mod2,design_40,PASS,9.0,22.7725,13.8475,8.925,17.1169,8.7538,3.09,0.79,0.83,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0006,G4FP_r28_l3_cro_mod2,design_6,PASS,8.0,24.4624,16.4149,8.0475,12.1939,15.2053,6.78,0.53,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0035,G4FP_des1_cro_mod4,design_35,PASS,8.0,25.8251,18.3563,7.4688,9.0255,17.6021,5.88,0.6,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0027,G4FP_des1_cro_mod4,design_27,PASS,11.0,24.4326,17.0865,7.3461,9.703,15.5515,6.76,0.59,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0091,G4FP_des1_cro_mod4,design_91,PASS,6.0,24.4138,17.4352,6.9786,8.588,17.302,7.1,0.55,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0043,G4FP_des1_cro_mod4,design_43,PASS,6.0,25.2799,18.328,6.9518,8.3974,18.4912,7.17,0.55,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0030,G4FP_des1_cro_mod4,design_30,PASS,4.0,23.8887,17.1163,6.7723,8.9931,17.5204,6.8,0.56,0.78,True,True,True,True
+G4FP_r28_l2_cro_mod3_design_0024,G4FP_r28_l2_cro_mod3,design_24,PASS,7.0,22.0208,15.3329,6.6879,8.8254,15.715,6.63,0.59,0.79,True,True,True,True
+G4FP_des1_cro_mod4_design_0014,G4FP_des1_cro_mod4,design_14,PASS,3.0,24.5621,17.9108,6.6514,8.1477,17.4869,7.24,0.54,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0063,G4FP_des1_cro_mod4,design_63,PASS,5.0,24.4893,17.9034,6.5859,8.9415,18.9143,6.95,0.55,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0092,G4FP_des1_cro_mod4,design_92,PASS,6.0,25.2602,18.7217,6.5385,8.4768,18.2312,7.24,0.55,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0051,G4FP_des1_cro_mod4,design_51,PASS,6.0,25.0451,18.5537,6.4914,8.2361,18.3909,7.34,0.54,0.77,True,True,True,True
+G4FP_r28_l1_cro_mod2_design_0015,G4FP_r28_l1_cro_mod2,design_15,PASS,7.0,19.3602,12.994,6.3662,6.3481,11.7242,5.47,0.64,0.82,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0056,G4FP_r28_l3_cro_mod2,design_56,PASS,3.0,24.3888,18.0762,6.3126,11.8374,17.0077,6.67,0.52,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0016,G4FP_des1_cro_mod4,design_16,PASS,5.0,24.1059,17.8153,6.2906,8.7681,16.9727,6.94,0.56,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0074,G4FP_des1_cro_mod4,design_74,PASS,6.0,24.0888,17.8362,6.2526,7.7743,17.2982,6.98,0.56,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0025,G4FP_des1_cro_mod4,design_25,PASS,5.0,25.9997,19.751,6.2487,9.2916,19.1196,7.17,0.51,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0067,G4FP_des1_cro_mod4,design_67,PASS,4.0,24.6959,18.4821,6.2139,8.3224,18.2263,7.14,0.54,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0095,G4FP_des1_cro_mod4,design_95,PASS,4.0,24.9401,18.9274,6.0127,8.4233,19.0013,7.42,0.53,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0022,G4FP_des1_cro_mod4,design_22,PASS,4.0,24.4742,18.4705,6.0037,8.3308,18.5543,7.29,0.53,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0047,G4FP_des1_cro_mod4,design_47,PASS,5.0,24.6945,18.7486,5.9459,8.4173,18.561,7.38,0.54,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0083,G4FP_des1_cro_mod4,design_83,PASS,6.0,23.9915,18.0456,5.9458,7.8266,17.5108,6.66,0.55,0.76,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0012,G4FP_r28_l3_cro_mod2,design_12,PASS,9.0,22.8637,17.0376,5.8261,6.0823,16.8493,7.4,0.49,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0001,G4FP_des1_cro_mod4,design_1,PASS,5.0,24.0383,18.2578,5.7805,7.2607,17.9914,7.44,0.53,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0038,G4FP_des1_cro_mod4,design_38,PASS,7.0,23.7283,17.9572,5.7711,6.911,16.9673,6.83,0.57,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0039,G4FP_des1_cro_mod4,design_39,PASS,5.0,23.9661,18.1985,5.7676,7.7132,17.8962,7.03,0.55,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0052,G4FP_des1_cro_mod4,design_52,PASS,6.0,24.2824,18.5568,5.7256,7.2427,18.7621,6.78,0.56,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0068,G4FP_des1_cro_mod4,design_68,PASS,5.0,23.8763,18.1548,5.7215,7.8541,19.4584,7.23,0.55,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0002,G4FP_des1_cro_mod4,design_2,PASS,6.0,25.7311,20.0149,5.7163,7.9098,19.6216,7.19,0.53,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0031,G4FP_des1_cro_mod4,design_31,PASS,5.0,24.2596,18.5449,5.7147,7.0628,18.2637,7.08,0.55,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0097,G4FP_des1_cro_mod4,design_97,PASS,3.0,24.2464,18.5432,5.7032,9.3336,18.4854,7.73,0.51,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0004,G4FP_des1_cro_mod4,design_4,PASS,5.0,23.4156,17.7955,5.6201,7.4651,17.2006,7.05,0.54,0.76,True,True,True,True
+G4FP_r28_l3_cro_mod0_design_0007,G4FP_r28_l3_cro_mod0,design_7,PASS,4.0,24.2633,18.7279,5.5354,8.0017,18.8071,7.37,0.54,0.77,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0039,G4FP_r28_l3_cro_mod2,design_39,PASS,4.0,24.3462,18.8521,5.4941,8.7315,16.6017,7.57,0.53,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0008,G4FP_des1_cro_mod4,design_8,PASS,4.0,23.7117,18.2812,5.4305,7.4885,18.1574,7.22,0.53,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0087,G4FP_des1_cro_mod4,design_87,PASS,6.0,23.4825,18.0947,5.3878,7.184,18.4791,6.95,0.52,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0021,G4FP_des1_cro_mod4,design_21,PASS,6.0,24.2739,18.9557,5.3182,6.9868,18.6013,7.4,0.53,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0060,G4FP_des1_cro_mod4,design_60,PASS,6.0,23.9636,18.7149,5.2487,6.707,18.5593,6.79,0.55,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0049,G4FP_des1_cro_mod4,design_49,PASS,4.0,23.5969,18.3951,5.2018,7.281,18.2854,7.08,0.56,0.77,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0041,G4FP_r28_l3_cro_mod2,design_41,PASS,4.0,23.9631,18.7731,5.1899,8.6317,16.8945,6.92,0.55,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0048,G4FP_des1_cro_mod4,design_48,PASS,5.0,24.1144,19.1784,4.936,7.0037,18.9343,7.31,0.52,0.76,True,True,True,True
+G4FP_r28_l2_cro_mod3_design_0006,G4FP_r28_l2_cro_mod3,design_6,PASS,8.0,20.8926,15.983,4.9096,5.6557,16.594,7.63,0.51,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0080,G4FP_des1_cro_mod4,design_80,PASS,5.0,23.8375,18.9447,4.8928,6.819,18.6701,7.3,0.53,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0098,G4FP_des1_cro_mod4,design_98,PASS,7.0,23.9881,19.1259,4.8622,6.5968,18.6641,7.07,0.54,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0096,G4FP_des1_cro_mod4,design_96,PASS,6.0,22.9703,18.1211,4.8492,6.8196,18.2217,7.21,0.54,0.78,True,True,True,True
+G4FP_r28_l3_cro_mod0_design_0098,G4FP_r28_l3_cro_mod0,design_98,PASS,3.0,23.4818,18.6553,4.8265,7.6139,18.3974,8.16,0.5,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0050,G4FP_des1_cro_mod4,design_50,PASS,6.0,24.028,19.4025,4.6255,6.7049,18.4707,6.81,0.57,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0003,G4FP_des1_cro_mod4,design_3,PASS,4.0,22.7375,18.1495,4.588,7.0312,17.9572,7.11,0.53,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0017,G4FP_des1_cro_mod4,design_17,PASS,3.0,23.9437,19.3684,4.5753,6.6242,19.382,7.89,0.5,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0012,G4FP_des1_cro_mod4,design_12,PASS,4.0,23.6717,19.2361,4.4357,6.4879,18.76,7.78,0.51,0.75,True,True,True,True
+G4FP_r28_l2_cro_mod3_design_0001,G4FP_r28_l2_cro_mod3,design_1,PASS,4.0,21.3777,16.9621,4.4155,5.0013,16.8994,6.08,0.6,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0090,G4FP_des1_cro_mod4,design_90,PASS,5.0,22.6535,18.3041,4.3494,6.4398,17.9204,7.44,0.52,0.77,True,True,True,True
+G4FP_des1_cro_mod4_design_0015,G4FP_des1_cro_mod4,design_15,PASS,6.0,23.905,19.5639,4.341,6.1088,19.2905,7.49,0.51,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0053,G4FP_des1_cro_mod4,design_53,PASS,6.0,23.7071,19.395,4.3121,6.076,19.0629,6.94,0.55,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0062,G4FP_des1_cro_mod4,design_62,PASS,6.0,22.6419,18.393,4.2488,5.994,17.1538,6.99,0.55,0.76,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0086,G4FP_r28_l2_cro_mod2,design_86,PASS,7.0,20.5314,16.3397,4.1917,6.3436,16.0464,6.03,0.61,0.78,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0081,G4FP_r28_l2_cro_mod2,design_81,PASS,5.0,19.7641,15.574,4.1901,5.1355,15.6473,7.26,0.55,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0072,G4FP_des1_cro_mod4,design_72,PASS,3.0,23.5854,19.4529,4.1325,7.5935,19.3228,7.53,0.5,0.76,True,True,True,True
+G4FP_des1_cro_mod4_design_0061,G4FP_des1_cro_mod4,design_61,PASS,7.0,23.8368,19.7924,4.0444,6.0935,19.6785,6.61,0.55,0.75,True,True,True,True
+G4FP_des1_cro_mod4_design_0055,G4FP_des1_cro_mod4,design_55,PASS,5.0,22.9437,19.0302,3.9135,5.3834,18.4758,6.89,0.56,0.76,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0077,G4FP_r28_l2_cro_mod2,design_77,PASS,9.0,19.7428,15.9808,3.762,3.4351,13.9181,5.02,0.65,0.78,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0094,G4FP_r28_l2_cro_mod2,design_94,PASS,7.0,19.424,15.7626,3.6614,5.0526,16.7868,6.28,0.57,0.78,True,True,True,True
+G4FP_des1_cro_mod4_design_0006,G4FP_des1_cro_mod4,design_6,PASS,5.0,22.5985,18.9606,3.6379,5.5836,18.6492,7.14,0.54,0.76,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0055,G4FP_r28_l2_cro_mod2,design_55,PASS,6.0,20.0115,16.4891,3.5225,3.8682,16.9271,6.97,0.53,0.77,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0063,G4FP_r28_l2_cro_mod2,design_63,PASS,4.0,23.5623,20.0954,3.4669,4.8192,19.4466,6.44,0.57,0.74,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0024,G4FP_r28_l2_cro_mod2,design_24,PASS,5.0,20.7906,17.4025,3.3881,4.277,18.5063,7.36,0.52,0.76,True,True,True,True
+G4FP_r28_l2_cro_mod2_design_0099,G4FP_r28_l2_cro_mod2,design_99,PASS,5.0,21.1547,18.0494,3.1053,3.1481,19.2468,7.65,0.52,0.76,True,True,True,True
+G4FP_r28_l3_cro_mod2_design_0023,G4FP_r28_l3_cro_mod2,design_23,PASS,5.0,22.1594,19.0902,3.0692,5.1813,16.7391,6.93,0.56,0.76,True,True,True,True
