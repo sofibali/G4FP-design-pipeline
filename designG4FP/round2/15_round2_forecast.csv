@@ -1,0 +1,11 @@
+# 15_round2_forecast.py
+# generated: 2026-11-17T12:49:24
+# git: a59fca84b
+# PLANNING ONLY -- predicted, not measured. Nothing was executed.
+# timings: *_h are hours; AF3 anchors 141.6 s holo / 138.2 s apo per prediction, 2 GPUs
+# pass_low/pass_high are PERCENT; see assumptions A1-A3 in the script header
+scenario,name,n_inputs,n_designs,n_af3,mpnn_h,af3_h,wall_h,pass_low,pass_high,survivors_low,survivors_high
+A,Kielen plan as agreed,21,2100,4200,11.3,163.22,91.11,7.1,28.3,149,593
+B,Iterate the 71 survivors,71,7100,14200,38.22,551.83,308.04,7.1,60.2,505,4276
+B-lite,"Iterate 12 survivors, stratified",12,1200,2400,6.46,93.27,52.06,7.1,60.2,85,723
+E,Option E rebuild,8,800,1600,4.31,62.18,34.71,,,,

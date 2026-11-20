@@ -1,0 +1,14 @@
+# 17_forecast_denovo.py
+# generated: 2026-11-19T13:43:56
+# git: a59fca84b
+# PLANNING ONLY -- predicted, not measured. Nothing was executed.
+# round 2 framed as a NEW design campaign, not an iteration of round-1 designs
+# *_h are hours; AF3 anchors 141.6 s holo / 138.2 s apo, 2 GPUs
+# survivors_low  = round-1 funnel applied unchanged (7.11 %)
+# survivors_high = CONTACT uplifted by the 40+40 window (12.74 %)
+# scaffold generation is NOT costed here; it is additive
+scenario,name,n_scaffolds,n_designs,n_af3,mpnn_h,af3_h,analysis_h,wall_h,survivors_low,survivors_high
+P,"Pilot: 2 scaffolds, 20 designs each",2,40,80,1.08,1.55,0.07,2.7,3,5
+N1,"Narrow: one module, 4 scaffolds",4,400,800,2.15,15.54,0.73,18.43,28,51
+N2,Round-1 width: 10 scaffolds,10,1000,2000,5.38,38.86,1.83,46.08,71,127
+N3,Wide: two modules x 10 scaffolds,20,2000,4000,10.77,77.72,3.67,92.16,142,255
