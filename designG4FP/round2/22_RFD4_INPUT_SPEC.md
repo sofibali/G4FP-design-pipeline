@@ -126,10 +126,19 @@ condition covers **28 canonical polymer identities** (20 amino acids plus, by
 inference, 4 DNA and 4 RNA), so nucleic acid residues are polymer tokens in the
 model's vocabulary rather than atomized blobs.
 
+The paper's abstract says the latent space "encompasses standard and modified
+amino acids, sugars, DNA, and RNA."
+
 **What remains genuinely unvalidated is the model's *skill* at placing protein
-against a four-stranded Hoogsteen-paired fold**, because the DNA binder
-benchmark was 3 duplex targets on a previous release. That is a competence
-question, not an expressiveness one, and the two were conflated before.
+against a four-stranded Hoogsteen-paired fold.** On the DNA-binding benchmark
+RFD4 scores **3.5%** against 0.8% for BoltzGen and 0.5% for fixed-DNA RFD3, and
+it succeeds on **all three** DNA targets where fixed-DNA RFD3 manages two. So it
+is the best of the three and still measured on **3 duplex targets with no
+wet-lab DNA result anywhere**, and with no G-quadruplex or RNA target mentioned.
+That is a competence question, not an expressiveness one, and the two were
+conflated before. (Correcting an earlier note that put the 3-target benchmark on
+a previous release: the 3.5% is RFD4's own; the previous release is the RFD3
+comparator.)
 
 ## 6. The conditions that matter for a G4 sensor
 
@@ -263,3 +272,151 @@ falsifiable.
 
 Documentation read 23 Nov 2026. No AlphaFold3, LigandMPNN, RFD4-Proteina or
 wet-lab step was run to produce this document.
+
+---
+
+## 9. The prose route is real, but it is an interview
+
+From `docs/how-to/input_prep/agent.md` and the project site.
+
+> "Tell your coding agent what you want to build. It interviews you about the
+> parts you left open, checks the structure for the usual traps, and hands back
+> a model ready annotated CIF."
+
+> **"The conversion is not the product. The interview is."**
+
+So "just tell it what you want" is close but not the whole claim. The mechanism:
+
+- a shared skill **`rfd4-proteina-annotated-cif`**, run inside Codex or Claude
+  Code — `Use rfd4-proteina-annotated-cif with <artifact>`;
+- Claude Code's **`/design2cif`** command wraps the same skill;
+- `rfd4-proteina-generate` hands input prep to it.
+
+It opens the structure rather than reasoning about it, restates each intent as
+*"I read this as X, is that right?"*, then edits the annotated CIF **directly
+through the AtomWorks Python API**. It will **not** create a YAML/JSON
+intermediate unless explicitly asked — so if we want the spec in §7 as a
+version-controlled artifact, we have to ask for it.
+
+Evidence it accepts: "A paragraph, lab note, source structure, existing
+annotated CIF, or condition-spec JSON/YAML."
+
+What it refuses to do: guess past a real ambiguity, silently choose structural
+preparation, silently drop covalent bonds / charges / PTMs, or claim a check it
+did not run. Its own warning: "An agent can misread intent. Before you run the
+model, inspect the annotated CIF and its validation report."
+
+### Additional gotchas it screens for
+
+Beyond the kekulization issue already recorded:
+
+| gotcha | why it matters to us |
+|---|---|
+| `"100-155"` is a distribution, not a number; `"180-180"` is one length | our hinge and loop lengths must be deliberate, not accidental ranges |
+| length counts only what is **designed** — 180 plus a 4-residue motif is 184 | affects every contig we write |
+| **leaving ligand coordinate conditioning unset conditions no pose** — the model invents the ligand's pose *and* conformer, getting only identity, bonds and charge | **applies to the G4 and to CRO.** If we do not condition G4 coordinates we are asking it to invent a quadruplex fold |
+| `?` in `pdbx_formal_charge` means unknown, not neutral | CRO and the G4 phosphates |
+| PDB-derived ligands often arrive single-bonded | our CRO almost certainly will |
+| **covalent polymer-to-ligand bonds must remain present** | CRO is covalently in the chain; losing that bond silently detaches the chromophore |
+
+## 10. The calmodulin result — our exact problem, and the part nobody documents
+
+The site's headline example is a **conformational-state-selective binder**, on
+the very protein family our sensor mechanism is borrowed from:
+
+> "Calmodulin switches conformation when it binds Ca2+, and many of its partners
+> recognize only one state. We asked RFD4-Proteina for binders to the
+> calcium-bound form only."
+
+- **12 of 18 designs** bound with apparent Kd below 1 uM **and showed no
+  detectable binding without calcium** -- a 67% hit rate on state selectivity.
+- Apparent Kd from 69 pM (with a published caveat that this is a 1:1 fit at the
+  off-rate fitting floor, so its precise value and ranking are unresolved) to
+  37.0 nM; the site's interactive example binds at 2.48 nM.
+
+**The site gives no mechanism for how the state selectivity was specified.** No
+condition, parameter or input format is named for it, and there is nothing in
+the annotations table (§4) that expresses "bind state A but not state B". The
+nearest adjacent statements are "multi-state AF3 filtering" used on the ligase
+example -- a post-generation filter, not a specification -- and a general
+mention of "extrinsic reasoning: search steered by any score".
+
+**The reading that fits the evidence: you specify the state you want by giving
+that conformer's structure as the target, and selectivity against the other
+state is emergent, then filtered.** You do not negative-design against state B
+in the generator.
+
+If that is right, it transfers cleanly and it simplifies our plan:
+
+- give the **G4-bound** Rap1 conformer as the conditioned target;
+- do **not** attempt to encode "and not the duplex/apo state" as a condition;
+- recover the selectivity afterwards, where we already have the machinery --
+  Delta-iPAE for occupancy contrast and Delta-pLDDT for the loop.
+
+**Worth confirming before relying on it**, since it rests on absence of evidence
+rather than a stated method. The paper (10.64898/2026.11.12.766037) may say;
+the site does not.
+
+Encouraging either way: a 67% hit rate on exactly the class of problem we have,
+and no other campaign on that page needed a special mechanism for it.
+
+## 11. The target brief
+
+The prose to hand to `/design2cif`. It is written to be interviewed about, so
+the open decisions are marked rather than guessed.
+
+> **Target.** Build a genetically encoded G-quadruplex sensor. Three components
+> are supplied in one input CIF: (A) the yeast Rap1 DNA-binding domain split
+> into two blocks, residues 361-440 and 501-573; (B) a fluorescent-protein
+> beta-barrel carrying its mature chromophore CRO, covalently in the chain; and
+> (C) a 16-nt parallel G-quadruplex, sequence GGGTGGGTGGGTGGGT.
+>
+> **What is known and must not be designed.** The barrel is a fixed object --
+> condition its backbone coordinates and its full sequence. Both Rap1 blocks
+> have known sequence and known internal fold, so condition them backbone-only
+> so their sequences stay fixed but their side chains are free. The G4's
+> coordinates and sequence are known and must be conditioned, because leaving
+> them unset would ask the model to invent a quadruplex fold.
+>
+> **What must be designed.** First, the hinge between the two Rap1 blocks: a
+> variable-length segment, roughly 12-24 residues, resampled per design.
+> Second, an insertion loop that runs from Rap1 block 2 into the barrel wall,
+> entering between two beta-strands. Third, one aromatic residue near the end of
+> that loop which must sit buried in the barrel's surface cavity and hydrogen
+> bond to the chromophore's phenolate oxygen.
+>
+> **The motion the design has to allow.** The two Rap1 blocks are each
+> internally rigid but their relative placement must be free -- put them in
+> separate coordinate groups and unindex them as one index group. Their relative
+> orientation is the switch: in the G4-bound structure 6LDM they sit roughly 104
+> degrees apart from where they sit in the duplex-bound structure 1IGN. Do not
+> pin either block in absolute space.
+>
+> **How the protein should recognise the G4.** By aromatic end-stacking on a
+> terminal G-tetrad, which is how every characterised G4-binding protein works.
+> Request pi-stacking against the complete guanine ring systems of the 5' tetrad.
+> Add a small, sparse set of hotspots on that face -- one or two atoms, not the
+> whole surface. Keep the 3' tetrad free: Rap1's own recognition helix
+> (residues 398-412, hydrophobic patch Ser402/His405/Val409) docks there.
+>
+> **Variant to run alongside.** Replace the designed insertion loop with the
+> RHAU/DHX36 G4-recognition motif, conditioned as a helix, positioned so its
+> stacking face points at the 5' tetrad. In that variant the DSM supplies the
+> disorder-to-order transition instead of a de novo loop. Everything else is
+> identical.
+>
+> **Housekeeping.** Exclude cysteine from all designed positions. CRO's
+> aromatic bonds must be kekulized and its formal charges set explicitly, not
+> left unknown. Preserve the covalent bond joining CRO to the chain.
+>
+> **Open decisions I expect to be asked about.** Whether the hinge length range
+> should resample per design or be fixed; whether the barrel insertion point is
+> fixed or should be sampled across candidate beta-strand positions; whether the
+> loop tyrosine's identity should be conditioned or designed; whether the
+> hydrogen-bond condition can act on an intrachain, atomized-residue contact at
+> all (see section 6); and how sparse the tetrad hotspots should be.
+
+---
+
+Site and documentation read 23 Nov 2026. No RFD4-Proteina, AlphaFold3,
+LigandMPNN or wet-lab step was run to produce this document.
